@@ -826,6 +826,7 @@ export async function updateExplainerConversationConfig(id: string, input: Proje
   return normalizeProjectExplainerConfig(await request(`/api/explainer/conversations/${encodeURIComponent(id)}/config`, { method: "PATCH", body: JSON.stringify(input) }));
 }
 export async function cancelExplainerConversation(id: string): Promise<void> { await request(`/api/explainer/conversations/${encodeURIComponent(id)}/cancel`, { method: "POST" }); }
+export async function resetExplainerConversation(id: string): Promise<void> { await request(`/api/explainer/conversations/${encodeURIComponent(id)}/reset`, { method: "POST" }); }
 export async function streamExplainerConversation(id: string, question: string, onEvent: (event: ProjectExplainerEvent) => Promise<void> | void, signal?: AbortSignal) {
   return withRecommendationDeadline(activeSignal => streamExplainerQuestionAt(`/api/explainer/conversations/${encodeURIComponent(id)}/turns`, question, onEvent, activeSignal),
     signal, 630_000, "对话连接超过等待上限，请查看已保存的草稿和操作记录后重试。");

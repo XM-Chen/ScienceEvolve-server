@@ -3,14 +3,14 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import { ChevronDown, GitBranch, LoaderCircle, MessageSquare, Plus, Send, Settings2, Square, Undo2, X } from "lucide-react";
 import { ApiError, cancelExplainerConversation, createExplainerConversation, explainerAssistantDraftPayload, getCatalog, getExplainerConversation,
-  getExplainerConversationConfig, getExplainerConversationHistory, streamExplainerConversation, syncExplainerConversation,
+  getExplainerConversationConfig, getExplainerConversationHistory, resetExplainerConversation, streamExplainerConversation, syncExplainerConversation,
   undoExplainerDraft, updateExplainerConversationConfig, type ExplainerAssistantAction, type ExplainerAssistantContext } from "../api";
 import type { Catalog, CreateProjectInput, ProjectExplainerConfigInput, ProjectExplainerEvent, ProjectExplainerRuntimeConfig } from "../types";
 import "./project-explainer-assistant.css";
 import { foldExplainerMessages, isExplainerConversationMessage, mergeExplainerMessages, reconcileExplainerHistory,
   explainerActionFromEvent as actionFromEvent, notifyExplainerAction, pendingExplainerMessage, restoreExplainerMessages } from "./project-explainer-events";
 import { ExplainerActionCard } from "./ExplainerActionCard";
-import { cacheResource, readCachedResource } from "../resource-cache";
+import { cacheResource, readCachedResource, removeCachedResource } from "../resource-cache";
 import { ProjectExplainerReplyStatus, ProjectExplainerTrace } from "./ProjectExplainerTrace";
 export { mergeExplainerMessages } from "./project-explainer-events";
 
@@ -69,6 +69,8 @@ export function ProjectExplainerAssistantProvider({ children, target }: { childr
   const [events, setEvents] = useState<ProjectExplainerEvent[]>([]);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const busy = loading || resetting;
   const [runningId, setRunningId] = useState<string>();
   const [remoteActive, setRemoteActive] = useState(false);
   const [error, setError] = useState("");
@@ -87,6 +89,7 @@ export function ProjectExplainerAssistantProvider({ children, target }: { childr
   const launcher = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLElement>(null);
   const key = target.projectId ? `project:${target.projectId}` : target.taskId ? `task:${target.taskId}` : target.newProject ? "new" : "home";
+  const draftPage = key === "new" || key.startsWith("task:");
   const currentKey = useRef(key); currentKey.current = key;
   const registerEditor = useCallback((value: EditorBridge) => { editor.current = value; return () => { if (editor.current === value) editor.current = undefined; }; }, []);
   const show = useCallback((text?: string) => { if (text) setQuestion(text); setOpen(true); }, []);
@@ -126,7 +129,10 @@ export function ProjectExplainerAssistantProvider({ children, target }: { childr
       contextRef.current = conversation; setContext(conversation);
       const confirmedContext = conversation;
       setEvents(current => {
-        const next = sameConversation ? reconcileExplainerHistory(current, history.events) : foldExplainerMessages(history.events);
+        // A fresh server snapshot can reflect a reset from another tab.
+        const local = draftPage && !history.active && !request.current
+          ? current.filter(event => event.data?.clientPending === "unconfirmed") : current;
+        const next = sameConversation ? reconcileExplainerHistory(local, history.events) : foldExplainerMessages(history.events);
         cacheResource(`assistant:${key}`, { context: confirmedContext, config: runtimeConfig, events: next });
         return next;
       });
@@ -142,7 +148,7 @@ export function ProjectExplainerAssistantProvider({ children, target }: { childr
       try { localStorage.setItem(storageKey, conversation.id); } catch { /* Conversation remains stored on the server. */ }
     } catch (error) { if (generation === epoch.current) setError(message(error)); }
     finally { if (generation === epoch.current) setLoading(false); }
-  }, [key, target.taskId, target.projectId]);
+  }, [key, draftPage, target.taskId, target.projectId]);
   useEffect(() => { if (open && loadedKey.current !== key) void load(); return () => { ++epoch.current; }; }, [open, load, key]);
   useEffect(() => () => request.current?.abort(), []);
   useEffect(() => {
@@ -190,7 +196,7 @@ export function ProjectExplainerAssistantProvider({ children, target }: { childr
   };
   const send = async () => {
     const text = question.trim(), prior = contextRef.current;
-    if (!text || !prior || runningId || request.current || remoteActive || loading || !config?.available) return;
+    if (!text || !prior || runningId || request.current || remoteActive || busy || !config?.available) return;
     const activeKey = currentKey.current;
     const controller = new AbortController(); request.current = controller;
     const pending = pendingExplainerMessage(prior.projectId ?? prior.id, text, events);
@@ -242,8 +248,24 @@ export function ProjectExplainerAssistantProvider({ children, target }: { childr
     try { await cancelExplainerConversation(id); request.current?.abort(); setRemoteActive(false); }
     catch (error) { setError(message(error)); }
   };
+  const startNewDraftConversation = async () => {
+    const prior = contextRef.current;
+    if (!prior || prior.projectId || loadedKey.current !== key || busy || request.current || remoteActive || savingConfig) return;
+    setResetting(true); setError("");
+    try {
+      await resetExplainerConversation(prior.id);
+      removeCachedResource(`assistant:${key}`);
+      if (currentKey.current !== key || contextRef.current?.id !== prior.id) return;
+      setEvents([]); setPendingAction(undefined);
+      setNotice("已开始新对话，上一段对话已归档。");
+    } catch (error) {
+      if (currentKey.current === key) setError(message(error));
+    } finally {
+      setResetting(false);
+    }
+  };
   const saveConfig = async () => {
-    if (!context || !configDraft) return;
+    if (!context || !configDraft || busy) return;
     setSavingConfig(true); setError("");
     try {
       let updated: ProjectExplainerRuntimeConfig;
@@ -311,6 +333,8 @@ export function ProjectExplainerAssistantProvider({ children, target }: { childr
         onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); close(); } }}>
         <header className="explainer-floating-head"><GitBranch size={19} /><div><strong>工作流助手</strong><small>{target.projectId ? "当前项目" : context?.draft.title || "项目草稿与工作流"}</small></div>
           {key === "home" && <button type="button" aria-label="开始新的助手会话" title="开始新的项目草稿对话" disabled={active || loading} onClick={() => void load(true)}><Plus size={17} /></button>}
+          {draftPage && <button type="button" className="explainer-new-chat" title="开始新对话，上一段对话会归档" disabled={!context || active || busy || savingConfig}
+            onClick={() => void startNewDraftConversation()}><Plus size={14} aria-hidden="true" />新对话</button>}
           <button type="button" aria-label="助手 Harness 与模型设置" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(value => !value)}><Settings2 size={17} /></button>
           <button type="button" aria-label="关闭助手" title="关闭助手" onClick={close}><X size={18} /></button></header>
         <div className="explainer-floating-route"><span>{config ? `${config.harness} · ${config.model}` : "正在读取 Agent 配置…"}</span><button type="button" aria-label="展开助手配置" onClick={() => setSettingsOpen(value => !value)}><ChevronDown size={13} /></button></div>
@@ -325,7 +349,7 @@ export function ProjectExplainerAssistantProvider({ children, target }: { childr
           <label>思考强度<select aria-label="助手思考强度" value={configDraft?.reasoningEffort ?? "max"} disabled={loading || savingConfig} onChange={event => configDraft && setConfigDraft({ ...configDraft, reasoningEffort: event.target.value as ProjectExplainerConfigInput["reasoningEffort"] })}>
             {["low", "medium", "high", "xhigh", "max"].map(item => <option key={item} value={item}>{item}</option>)}</select></label>
           <small>所选 Harness 执行；请求经过本地代理。思考强度优先于网关默认值。</small>
-          <button type="button" disabled={loading || savingConfig || !configDraft} onClick={() => void saveConfig()}>{savingConfig ? "正在保存…" : "保存助手配置"}</button>
+          <button type="button" disabled={busy || savingConfig || !configDraft} onClick={() => void saveConfig()}>{savingConfig ? "正在保存…" : "保存助手配置"}</button>
         </div>}
         <div className="explainer-floating-transcript" ref={transcript} role="log" aria-label="助手对话记录" aria-live="polite">
           {loading && !turns.length && <p className="explainer-floating-empty"><LoaderCircle className="spin" size={18} />正在读取同一段会话…</p>}
@@ -354,8 +378,8 @@ export function ProjectExplainerAssistantProvider({ children, target }: { childr
               if (!event.repeat) event.currentTarget.form?.requestSubmit();
             }} />
           <small id="explainer-compose-hint" className="explainer-compose-hint">回车发送 · Shift + 回车换行</small>
-          <div><button type="button" className="explainer-undo" disabled={!context || context.canUndo === false || active || loading} onClick={() => void undo()}><Undo2 size={13} />撤销助手修改</button>
-            {active ? <button type="button" onClick={() => void stop()}><Square size={13} />停止</button> : <button type="submit" className="explainer-send" disabled={loading || !question.trim() || !config?.available}><Send size={14} />发送</button>}</div>
+          <div><button type="button" className="explainer-undo" disabled={!context || context.canUndo === false || active || busy} onClick={() => void undo()}><Undo2 size={13} />撤销助手修改</button>
+            {active ? <button type="button" onClick={() => void stop()}><Square size={13} />停止</button> : <button type="submit" className="explainer-send" disabled={busy || !question.trim() || !config?.available}><Send size={14} />发送</button>}</div>
         </form>
       </section>}
     </>, document.body)}

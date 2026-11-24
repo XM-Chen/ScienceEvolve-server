@@ -52,6 +52,7 @@
 .explainer-floating-head strong { display: block; font-size: 13px; }
 .explainer-floating-head small { display: block; overflow: hidden; margin-top: 4px; color: #77847a; text-overflow: ellipsis; white-space: nowrap; }
 .explainer-floating-head button { flex-shrink: 0; padding: 5px; border: 0; background: transparent; }
+.explainer-floating-head .explainer-new-chat { display: inline-flex; align-items: center; gap: 4px; color: #38704c; font-size: 12px; white-space: nowrap; }
 .explainer-floating-route { display: flex; flex: 0 0 auto; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 13px; border-bottom: 1px solid #edf1ed; font-size: 10px; color: #738078; }
 .explainer-floating-route span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .explainer-floating-route button { padding: 2px; border: 0; }
