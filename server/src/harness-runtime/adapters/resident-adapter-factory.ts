@@ -27,7 +27,7 @@ import {
 import type { AdapterMcpRow } from "./adapter-utils.js";
 import { harnessExecutableLaunch, gatewayModelContextWindow, safeName, sleepMcpRow } from "./adapter-utils.js";
 import { assertDshSessionArtifact, dshSelectedSkillsPatch, dshMcpPatch, dshNativeSdkPatch, dshSessionArtifactPath, resolveDshSessionArtifactPath, prepareDshSettings } from "./dsh-adapter.js";
-import { piMcpConfig, readResumedPiSession } from "./pi-adapter.js";
+import { piGatewayApiKeyReference, piMcpConfig, readResumedPiSession } from "./pi-adapter.js";
 import { CONTROL_PROXY_TIMEOUT_MS } from "../../control-request-lifetime.js";
 import type {
   ResidentAdapterLaunchEvidence,
@@ -224,7 +224,7 @@ async function buildPiLaunch(input: ResidentAdapterLaunchRequest) {
     }
   }
   await preparePiHome(home, gatewayLaunchRoute(input).baseUrl, spec.model,
-    gatewayModelContextWindow(request, spec.model));
+    gatewayModelContextWindow(request, spec.model), input.executable);
   const extension = await resolvePiResidentExtension();
   const yolo = request.permission === "yolo";
   const args = [
@@ -579,7 +579,8 @@ async function preparePiHome(
   home: string,
   baseUrl: string,
   model: string,
-  contextWindow: number
+  contextWindow: number,
+  executable: string
 ): Promise<void> {
   await fs.mkdir(path.join(home, "sessions"), { recursive: true, mode: 0o700 });
   const document = {
@@ -587,7 +588,7 @@ async function preparePiHome(
       openfars: {
         baseUrl,
         api: "openai-completions",
-        apiKey: "SCIENCEEVOLVE_GATEWAY_API_KEY",
+        apiKey: await piGatewayApiKeyReference(executable),
         authHeader: true,
         compat: {
           supportsStore: false,

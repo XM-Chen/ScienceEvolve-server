@@ -122,7 +122,8 @@ export class PiAdapter extends AdapterBase implements HarnessAdapter {
       runtime.home,
       context.route.baseUrl,
       spec.model,
-      gatewayModelContextWindow(request, spec.model)
+      gatewayModelContextWindow(request, spec.model),
+      executable
     );
     const sessionRoot = path.join(runtime.home, "sessions");
     const resumedIdentity = spec.session?.durable && spec.session.resumedAt
@@ -497,11 +498,30 @@ class PiSessionIdentityContractError extends HarnessRuntimeError {
   }
 }
 
+/** Earendil Pi interpolates explicit references; the bundled Pi resolves a bare name. */
+export async function piGatewayApiKeyReference(executable?: string): Promise<string> {
+  const variable = "SCIENCEEVOLVE_GATEWAY_API_KEY";
+  if (!executable) return variable;
+  for (let directory = path.dirname(path.resolve(executable));;) {
+    try {
+      const manifest = JSON.parse(await fs.readFile(path.join(directory, "package.json"), "utf8"));
+      if (manifest.name === "@earendil-works/pi-coding-agent") return `$${variable}`;
+      if (manifest.name === "@mariozechner/pi-coding-agent") return variable;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) return variable;
+    directory = parent;
+  }
+}
+
 export async function preparePiSettings(
   home: string,
   baseUrl: string,
   model: string,
-  contextWindow: number
+  contextWindow: number,
+  executable?: string
 ): Promise<void> {
   await fs.mkdir(path.join(home, "sessions"), { recursive: true, mode: 0o700 });
   const budgets = piContextBudgets(contextWindow);
@@ -510,7 +530,7 @@ export async function preparePiSettings(
       openfars: {
         baseUrl,
         api: "openai-completions",
-        apiKey: "SCIENCEEVOLVE_GATEWAY_API_KEY",
+        apiKey: await piGatewayApiKeyReference(executable),
         authHeader: true,
         compat: {
           supportsStore: false,
