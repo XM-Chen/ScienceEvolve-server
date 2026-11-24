@@ -925,7 +925,7 @@ export function codexIndexToolOutputConfig(names: readonly string[]): string {
   return names.length ? `, tools = { ${names.map(name => `${JSON.stringify(name)} = { output_token_limit = 1048576 }`).join(", ")} }` : "";
 }
 
-function tomlMcpServersConfig(
+export function tomlMcpServersConfig(
   servers: readonly AgentMcpServer[],
   control?: {
     command: string;

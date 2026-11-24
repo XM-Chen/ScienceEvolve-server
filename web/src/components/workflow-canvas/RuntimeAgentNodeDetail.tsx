@@ -42,7 +42,7 @@ export function RuntimeAgentNodeDetail({ node, project, title, state, executionC
       <div><dt>网关</dt><dd title={snapshot?.id ?? config.gatewayId}>{snapshot?.name ?? config.gatewayId ?? "服务环境默认"}</dd></div>
       <div><dt>模型</dt><dd>{config.model}</dd></div>
       <div><dt>协议 / 路由</dt><dd>{gatewayProtocol ? protocolLabel(gatewayProtocol) : "服务环境默认"}
-        <small>{gatewayProtocol && routeMode === "proxy" ? nativeProtocol ? `自动路由：${protocolLabel(nativeProtocol)} → ${protocolLabel(gatewayProtocol)}` : "自动代理路由" : gatewayProtocol && nativeProtocol ? "直连" : gatewayProtocol ? "Harness 协议未记录" : "未绑定全局网关"}</small>
+        <small>{gatewayProtocol && routeMode === "proxy" ? nativeProtocol ? `本地代理 · 协议转换：${protocolLabel(nativeProtocol)} → ${protocolLabel(gatewayProtocol)}` : "本地代理 · 协议待确认" : gatewayProtocol && nativeProtocol ? "本地代理 · 同协议转发" : gatewayProtocol ? "Harness 协议未记录" : "未绑定全局网关"}</small>
       </dd></div>
     </dl>}
     {config && <small className="runtime-agent-lock-state">{project.configurationLocked ? "项目创建后已锁定配置" : "项目配置尚未锁定"}</small>}

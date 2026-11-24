@@ -421,7 +421,7 @@ export function CanvasInspector({
             </div>
             <div className="canvas-derived-route" role="status">
               <span>协议与路由</span><strong>{selectedGateway ? protocolLabel(selectedGateway.protocol) : "选择网关后显示"}</strong>
-              <small>{selectedGateway && selectedHarness?.nativeProtocol && selectedHarness.nativeProtocol !== selectedGateway.protocol ? `已启用自动路由：${protocolLabel(selectedHarness.nativeProtocol)} → ${protocolLabel(selectedGateway.protocol)}` : selectedGateway && selectedHarness?.nativeProtocol ? "直连" : selectedGateway ? "Harness 目录待确认" : "尚未推导"}</small>
+              <small>{selectedGateway && selectedHarness?.nativeProtocol && selectedHarness.nativeProtocol !== selectedGateway.protocol ? `本地代理 · 协议转换：${protocolLabel(selectedHarness.nativeProtocol)} → ${protocolLabel(selectedGateway.protocol)}` : selectedGateway && selectedHarness?.nativeProtocol ? "本地代理 · 同协议转发" : selectedGateway ? "Harness 目录待确认" : "尚未推导"}</small>
               {combinationTest?.status === "failed" && <small className="field-error gateway-combination-error" role="alert">
                 {adapterProbeFailed ? "网关协议已通过，Harness 工具调用验证未通过。" : "当前模型的网关路由验证未通过。"}
                 {combinationTest.error && ` ${combinationTest.error}`}

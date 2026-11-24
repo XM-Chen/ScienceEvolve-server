@@ -13,6 +13,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows-compatibility:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      # Offline fixtures only; no native Harness or real-gateway acceptance runs.
+      OPENFARS_NATIVE_PI_TESTS: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Check local adapters, assistant draft receipts and workspace persistence
+        working-directory: server
+        run: >-
+          npm test -- tests/runtime-compatibility.test.ts
+          tests/workspace-binding-compatibility.test.ts
+          tests/explainer-assistant.test.ts tests/explainer-assistant-api.test.ts
+      - run: npm run build
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

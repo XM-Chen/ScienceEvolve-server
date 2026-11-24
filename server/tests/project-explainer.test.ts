@@ -830,7 +830,7 @@ describe("ProjectExplainerService", () => {
     expect(calls[0]).toMatchObject({
       harnessId: "fixture-a",
       model: "fixture-model",
-      reasoningEffort: "high"
+      reasoningEffort: "max"
     });
     expect(calls[0]?.prompt).toContain("Use native tools when needed");
     expect(calls[0]?.prompt).toContain("Use read_context or native file tools");

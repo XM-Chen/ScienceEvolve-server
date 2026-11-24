@@ -9,6 +9,7 @@ import { injectionBudget } from "./context-injection-budget.js";
 import type { SkillCatalog } from "./skill-catalog.js";
 import { publicFixedMcpDirectory } from "./mcp-directory.js";
 import { redactTrace } from "./utils.js";
+import { resolveExplainerReasoning } from "./explainer-reasoning.js";
 import { overallProgress } from "./orchestrator.js";
 import type { SessionRef } from "./harness-runtime/contracts.js";
 import { HarnessRuntimeFacade } from "./harness-runtime/runtime.js";
@@ -39,7 +40,7 @@ export {
 } from "./internal/shared/project-explainer.js";
 
 const EXPLAINER_MODEL = "nex-agi/Nex-N2-Pro";
-const EXPLAINER_REASONING_EFFORT = "high";
+const EXPLAINER_REASONING_EFFORT = "max";
 
 export interface ProjectExplainerRuntimeConfig extends ProjectExplainerBaseConfig {
   harness: AgentHarness;
@@ -321,7 +322,7 @@ export class ProjectExplainerService implements ProjectExplainerPort, ProjectExp
       }
       const result = await this.runtime.runExplainer({ invocationId, projectId: job.projectId, projectPath: job.projectPath,
         workspacePath, runtimePath, inboxPath, memoryPath, harnessId: route.harness, gateway: route.gateway,
-        model: config.model, reasoningEffort: config.reasoningEffort as "low" | "medium" | "high" | "xhigh", evidenceInPrompt: true, assistantMcp: { url: mcp.url },
+        model: config.model, reasoningEffort: config.reasoningEffort as "low" | "medium" | "high" | "xhigh" | "max", evidenceInPrompt: true, assistantMcp: { url: mcp.url },
         prompt, onTrace: async () => undefined, onEvent: async () => undefined }, invocationSignal);
       const json = result.answer.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
       return validateContextOrganization(JSON.parse(json), job.children);
@@ -498,8 +499,16 @@ export class ProjectExplainerService implements ProjectExplainerPort, ProjectExp
           try { await this.gatewayStore.assertAllowedNetworkTarget(gateway.url); }
           catch (error) { validationError = `所选网关网络目标校验失败：${error instanceof Error ? error.message : "域名解析失败"}`; }
           if (!validationError && !gateway.models.includes(config.model)) validationError = `所选网关未声明 model：${config.model}`;
-          else if (!validationError && !await this.gatewayStore.harnessCombinationPassed(gateway.id, config.harness, config.model)) {
-            validationWarning = "当前 Harness / 网关 / model 组合尚未通过验证，仍可使用；运行可能失败，具体错误会在执行时显示。";
+          if (!validationError) {
+            try {
+              const reasoning = resolveExplainerReasoning(gateway.modelReasoning, config.model, gateway.protocol,
+                config.reasoningEffort.trim() || this.defaultReasoningEffort);
+              if (!await this.gatewayStore.harnessCombinationPassed(gateway.id, config.harness, config.model, reasoning?.optionId)) {
+                validationWarning = "当前 Harness / 网关 / model / 思考等级组合尚未通过验证，仍可使用；运行可能失败，具体错误会在执行时显示。";
+              }
+            } catch (error) {
+              validationError = error instanceof Error ? error.message : "助手思考等级配置无效";
+            }
           }
         }
       }

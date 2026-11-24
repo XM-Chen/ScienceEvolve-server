@@ -940,9 +940,9 @@ export function GatewayManagementPage({ onBack }: { onBack: () => void }) {
 
       {installations.length > 0 && <section className="form-section" aria-label="本机 Harness 安装状态">
         <h2>本机执行工具</h2>
-        <p>默认使用 Codex CLI。安装状态检查只读取本机入口，不调用模型。</p>
-        <table><thead><tr><th>工具</th><th>安装</th><th>运行状态</th></tr></thead>
-          <tbody>{installations.map(item => <tr key={item.id}><td>{item.label}</td><td>{item.installed ? "已安装" : "未找到"}</td><td>{item.message}</td></tr>)}</tbody>
+        <p>默认使用 Codex CLI。此处只读取本机入口与版本；模型调用验证状态请查看下方网关组合记录。</p>
+        <table><thead><tr><th>工具</th><th>安装</th><th>版本</th><th>运行状态</th></tr></thead>
+          <tbody>{installations.map(item => <tr key={item.id}><td>{item.label}{item.packageName && <small>{item.packageName}</small>}</td><td>{item.installed ? "已安装" : "未找到"}</td><td>{item.version ?? (item.installed ? "未知" : "—")}{item.adapterVersion && <small>适配器 {item.adapterVersion}</small>}</td><td>{item.message}</td></tr>)}</tbody>
         </table>
       </section>}
 

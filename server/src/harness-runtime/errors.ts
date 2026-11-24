@@ -23,6 +23,7 @@ export type HarnessRuntimeErrorCode =
   | "CONTEXT_INJECTION_LIMIT_EXCEEDED"
   | "PERMISSION_PROMPT_INJECTION_FAILED"
   | "MODEL_AUTHENTICATION_FAILED"
+  | "PROTOCOL_PROXY_AUTHENTICATION_FAILED"
   | "MODEL_PROVIDER_FAILED"
   | "MODEL_CONTEXT_LIMIT_EXCEEDED"
   | "PROTOCOL_TOOL_ARGUMENTS_INVALID"
@@ -46,6 +47,9 @@ export interface HarnessRuntimeErrorOptions extends ErrorOptions {
   source?: HarnessRuntimeErrorSource;
   diagnosticRef?: string;
 }
+
+const LOCAL_PROXY_AUTHENTICATION_MESSAGE =
+  "本地协议代理凭据校验失败；请求尚未转发至网关。请检查 Harness 的凭据注入和版本兼容性。";
 
 export class HarnessRuntimeError extends Error {
   readonly retryable: boolean;
@@ -189,6 +193,11 @@ export function proxyFailureError(failure: ProtocolProxyFailure, harnessId: stri
     targetProtocol: failure.targetProtocol, model: failure.model, httpStatus: failure.httpStatus,
     toolName: failure.toolName, toolIndex: failure.toolIndex };
   const options = { source: "gateway" as const, cause: cause instanceof Error ? cause : undefined };
+  if (failure.code === "PROTOCOL_PROXY_AUTHENTICATION_FAILED") return new HarnessRuntimeError(
+    failure.code,
+    LOCAL_PROXY_AUTHENTICATION_MESSAGE,
+    details, { ...options, source: "adapter", retryable: false }
+  );
   if (failure.code === "PROTOCOL_TOOL_ARGUMENTS_INVALID") return new ProtocolToolArgumentsError(harnessId, details, options);
   if (failure.code === "CONTEXT_INJECTION_LIMIT_EXCEEDED") return new HarnessRuntimeError(failure.code,
     failure.message, { ...details, requestedTokens: failure.requestedTokens, limitTokens: failure.limitTokens }, { ...options, source: "inputs", retryable: false });
@@ -260,6 +269,12 @@ export function normalizeHarnessRuntimeError(
 ): HarnessRuntimeError {
   if (error instanceof HarnessRuntimeError) return error;
   const cause = error instanceof Error ? error : new Error(String(error));
+  if (/protocol proxy credential is invalid/i.test(cause.message)) {
+    return new HarnessRuntimeError(
+      "PROTOCOL_PROXY_AUTHENTICATION_FAILED", LOCAL_PROXY_AUTHENTICATION_MESSAGE,
+      { harnessId, httpStatus: 401 }, { source: "adapter", retryable: false, cause }
+    );
+  }
   if (error instanceof AgentInterruptedError) {
     return new HarnessRuntimeError(
       "INVOCATION_INTERRUPTED",

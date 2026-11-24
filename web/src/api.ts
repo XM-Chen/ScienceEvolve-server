@@ -1931,6 +1931,10 @@ export interface HarnessInstallation {
   label: string;
   installed: boolean;
   available: boolean;
+  packageName?: string;
+  version?: string;
+  adapterVersion?: string;
+  verification: "not-run";
   message: string;
 }
 

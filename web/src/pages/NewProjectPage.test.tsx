@@ -1752,7 +1752,7 @@ describe("NewProjectPage agent configuration", () => {
     expect(within(canvasDialog).getByLabelText("idea model")).toHaveValue("");
     expect(within(canvasDialog).getByText("切换网关后需要重新选择 model")).toHaveAttribute("role", "alert");
     await user.selectOptions(within(canvasDialog).getByLabelText("idea model"), "route-model");
-    expect(within(canvasDialog).getByText("已启用自动路由：Anthropic Messages → OpenAI Responses")).toBeVisible();
+    expect(within(canvasDialog).getByText("本地代理 · 协议转换：Anthropic Messages → OpenAI Responses")).toBeVisible();
     await user.click(within(canvasDialog).getAllByRole("button", { name: "关闭 Workflow 编辑器" })[0]!);
 
     expect(screen.getByLabelText("构思智能体 Harness")).toHaveValue("fixture-anthropic");

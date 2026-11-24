@@ -119,7 +119,7 @@ export interface ProtocolToolArgumentsValidation {
 /** A provider/tool-call protocol failure retained by one invocation-local proxy. */
 export interface ProtocolProxyFailure {
   code: "PROTOCOL_TOOL_ARGUMENTS_INVALID" | "MODEL_PROVIDER_FAILED" | "MODEL_CONTEXT_LIMIT_EXCEEDED" |
-    "MODEL_AUTHENTICATION_FAILED" | "MODEL_REQUEST_INVALID" | "CONTEXT_INJECTION_LIMIT_EXCEEDED";
+    "MODEL_AUTHENTICATION_FAILED" | "PROTOCOL_PROXY_AUTHENTICATION_FAILED" | "MODEL_REQUEST_INVALID" | "CONTEXT_INJECTION_LIMIT_EXCEEDED";
   httpStatus?: number;
   requestedTokens?: number;
   limitTokens?: number;
@@ -1423,6 +1423,15 @@ async function handleProxyRequest(
       // Tracing must never change proxy behavior.
     }
   };
+  const rejectProxyCredential = (): void => {
+    const message = "Local protocol proxy credential is invalid; request was not forwarded to the gateway";
+    markProtocolFailure(state, {
+      code: "PROTOCOL_PROXY_AUTHENTICATION_FAILED", httpStatus: 401, message,
+      sourceProtocol: state.options.sourceProtocol, targetProtocol: state.options.targetProtocol, model: ""
+    }, undefined, ++state.providerRequestSequence);
+    trace("error", message, { errorCode: "PROTOCOL_PROXY_AUTHENTICATION_FAILED", diagnosticSource: "proxy" });
+    writeJsonError(response, 401, message, state.options.sourceProtocol);
+  };
   if (request.method === "GET" && request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ status: "ok" }));
@@ -1443,7 +1452,7 @@ async function handleProxyRequest(
   // metadata and can change its tool behavior.
   if (request.method === "GET" && requestPath.endsWith("/models")) {
     if (!authorizedProxyRequest(request, state.options.sourceProtocol, state.token)) {
-      writeJsonError(response, 401, "protocol proxy credential is invalid", state.options.sourceProtocol);
+      rejectProxyCredential();
       return;
     }
     const controller = new AbortController();
@@ -1502,7 +1511,7 @@ async function handleProxyRequest(
     return;
   }
   if (!authorizedProxyRequest(request, state.options.sourceProtocol, state.token)) {
-    writeJsonError(response, 401, "protocol proxy credential is invalid", state.options.sourceProtocol);
+    rejectProxyCredential();
     return;
   }
   const raw = await readBody(request, 8 * 1024 * 1024).catch((error) => {

@@ -322,8 +322,9 @@ export function ProjectExplainerAssistantProvider({ children, target }: { childr
             {!gateway && <option value="">请选择网关</option>}{catalog?.gateways?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label>模型<select aria-label="助手模型" value={configDraft?.model ?? ""} disabled={loading || savingConfig || !gateway} onChange={event => configDraft && setConfigDraft({ ...configDraft, model: event.target.value })}>
             {!gateway?.models.includes(configDraft?.model ?? "") && <option value={configDraft?.model ?? ""}>{configDraft?.model || "请选择模型"}</option>}{gateway?.models.map(model => <option key={model} value={model}>{model}</option>)}</select></label>
-          <label>思考强度<select aria-label="助手思考强度" value={configDraft?.reasoningEffort ?? "high"} disabled={loading || savingConfig} onChange={event => configDraft && setConfigDraft({ ...configDraft, reasoningEffort: event.target.value as ProjectExplainerConfigInput["reasoningEffort"] })}>
+          <label>思考强度<select aria-label="助手思考强度" value={configDraft?.reasoningEffort ?? "max"} disabled={loading || savingConfig} onChange={event => configDraft && setConfigDraft({ ...configDraft, reasoningEffort: event.target.value as ProjectExplainerConfigInput["reasoningEffort"] })}>
             {["low", "medium", "high", "xhigh", "max"].map(item => <option key={item} value={item}>{item}</option>)}</select></label>
+          <small>所选 Harness 执行；请求经过本地代理。思考强度优先于网关默认值。</small>
           <button type="button" disabled={loading || savingConfig || !configDraft} onClick={() => void saveConfig()}>{savingConfig ? "正在保存…" : "保存助手配置"}</button>
         </div>}
         <div className="explainer-floating-transcript" ref={transcript} role="log" aria-label="助手对话记录" aria-live="polite">

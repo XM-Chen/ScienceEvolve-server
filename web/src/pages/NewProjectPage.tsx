@@ -339,7 +339,7 @@ function AgentConfigCard({
           <span><Cable size={14} />网关协议与路由</span>
           <div className="derived-route-field" aria-label={`${meta.name}网关协议与路由`}>
             <strong>{selectedGateway ? protocolLabel(selectedGateway.protocol) : "选择网关后显示"}</strong>
-            <small>{selectedGateway && nativeProtocol && nativeProtocol !== selectedGateway.protocol ? `自动路由：${protocolLabel(nativeProtocol)} → ${protocolLabel(selectedGateway.protocol)}` : selectedGateway && nativeProtocol ? "直连" : selectedGateway ? "Harness 目录待确认" : "尚未推导"}</small>
+            <small>{selectedGateway && nativeProtocol && nativeProtocol !== selectedGateway.protocol ? `本地代理 · 协议转换：${protocolLabel(nativeProtocol)} → ${protocolLabel(selectedGateway.protocol)}` : selectedGateway && nativeProtocol ? "本地代理 · 同协议转发" : selectedGateway ? "Harness 目录待确认" : "尚未推导"}</small>
           </div>
           {connectionTestError && <small className="field-error gateway-combination-error" role="alert">连通性测试失败：{connectionTestError}</small>}
         </div>

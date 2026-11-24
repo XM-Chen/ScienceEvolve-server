@@ -92,6 +92,15 @@ async function setup() {
 }
 
 describe("shared Project Explainer core", () => {
+  it("preserves max effort through shared-core dispatch", async () => {
+    const { service, host } = await setup();
+    const getConfig = host.getConfig;
+    host.getConfig = async (...args) => ({ ...await getConfig(...args), reasoningEffort: "max" });
+    const run = vi.spyOn(host, "run");
+    await service.ask("project", "Explain the saved evidence.", () => undefined, new AbortController().signal);
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: "max" }), expect.any(AbortSignal));
+  });
+
   it("reports preparation before loading evidence and never starts the model when stopped during preparation", async () => {
     const { service, host, invocations } = await setup();
     const project = host.project;

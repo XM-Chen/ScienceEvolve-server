@@ -101,7 +101,7 @@ export interface ProjectExplainerInvocation<Route, Session> {
   memoryPath: string;
   route: Route;
   model: string;
-  reasoningEffort: "low" | "medium" | "high" | "xhigh";
+  reasoningEffort: "low" | "medium" | "high" | "xhigh" | "max";
   prompt: string;
   allowAssistantTools?: boolean;
   session?: Session;
@@ -800,8 +800,8 @@ function containsHiddenReasoningPayload(value: unknown): boolean {
     /^(?:reasoning|thinking)(?:_?(?:text|delta|content|summary))?$/i.test(key) || containsHiddenReasoningPayload(nested));
 }
 
-function normalizeEffort(value: string): "low" | "medium" | "high" | "xhigh" {
-  return value === "low" || value === "medium" || value === "xhigh" ? value : "high";
+function normalizeEffort(value: string): "low" | "medium" | "high" | "xhigh" | "max" {
+  return value === "low" || value === "medium" || value === "xhigh" || value === "max" ? value : "high";
 }
 
 function boundedText(value: string): string {

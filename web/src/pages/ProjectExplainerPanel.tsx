@@ -626,7 +626,7 @@ export function ProjectExplainerPanel({ projectId, active = true, onClose }: { p
                   })}
                 </select>
               </label>
-              <div className="project-explainer-derived-route" aria-live="polite"><span>网关协议与路由</span><strong>{selectedGateway ? protocolLabel(selectedGateway.protocol) : "选择网关后显示"}</strong><small>{routeNeeded && selectedHarness?.nativeProtocol && selectedGateway ? `自动路由：${protocolLabel(selectedHarness.nativeProtocol)} → ${protocolLabel(selectedGateway.protocol)}` : selectedGateway && selectedHarness?.nativeProtocol ? "直连" : selectedGateway ? "Harness 目录待确认" : "尚未推导"}</small>{combinationTestWarning && <small className="project-explainer-config-warning" role="status">{combinationTestWarning}</small>}</div>
+              <div className="project-explainer-derived-route" aria-live="polite"><span>网关协议与路由</span><strong>{selectedGateway ? protocolLabel(selectedGateway.protocol) : "选择网关后显示"}</strong><small>{routeNeeded && selectedHarness?.nativeProtocol && selectedGateway ? `本地代理 · 协议转换：${protocolLabel(selectedHarness.nativeProtocol)} → ${protocolLabel(selectedGateway.protocol)}` : selectedGateway && selectedHarness?.nativeProtocol ? "本地代理 · 同协议转发" : selectedGateway ? "Harness 目录待确认" : "尚未推导"}</small><small>由所选 Harness 执行；网关请求经过 ScienceEvolve 本地代理。</small>{combinationTestWarning && <small className="project-explainer-config-warning" role="status">{combinationTestWarning}</small>}</div>
               <label>
                 <span>Model</span>
                 {selectedGateway ? (
@@ -664,10 +664,20 @@ export function ProjectExplainerPanel({ projectId, active = true, onClose }: { p
                 {modelSelectionError && <small className="field-error" role="alert">{modelSelectionError}</small>}
                 {failedModelOptions.length > 0 && <small className="project-explainer-config-warning">以下 model 验证失败，仍可选择并使用：{failedModelOptions.map(({ model, test }) => `${model}${test.error ? `（${test.error}）` : ""}`).join("；")}</small>}
               </label>
+              <label>
+                <span>思考强度</span>
+                <select aria-label="Project Explainer 思考强度" value={configDraft.reasoningEffort ?? "max"}
+                  onChange={event => setConfigDraft(current => current ? {
+                    ...current, reasoningEffort: event.target.value as ProjectExplainerConfigInput["reasoningEffort"]
+                  } : current)}>
+                  {["low", "medium", "high", "xhigh", "max"].map(level => <option key={level} value={level}>{level}</option>)}
+                </select>
+                <small>优先于网关默认值，保存后用于助手的后续请求。</small>
+              </label>
             </div>
             {routeNeeded && selectedHarness?.nativeProtocol && (
               <span className="project-explainer-route-notice">
-                已根据所选 harness 和网关协议自动启用本地路由；可直接保存并尝试运行。
+                已根据所选 Harness 和网关协议启用本地代理的协议转换；可直接保存并尝试运行。
               </span>
             )}
             {runtimeConfig?.validationError && !runtimeConfig.available && (

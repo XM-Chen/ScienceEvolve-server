@@ -996,7 +996,7 @@ describe("WorkflowCanvasEditor interactions", () => {
       permission: "workspace",
       webSearch: false
     });
-    expect(screen.getByText("已启用自动路由：Anthropic Messages → OpenAI Chat Completions")).toBeVisible();
+    expect(screen.getByText("本地代理 · 协议转换：Anthropic Messages → OpenAI Chat Completions")).toBeVisible();
     expect(view.agentChanges).toHaveBeenCalled();
   });
 

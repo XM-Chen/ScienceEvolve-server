@@ -1916,7 +1916,7 @@ describe("Workspace task progress", () => {
     expect(modelInput).toHaveValue("");
     expect(screen.getByRole("alert")).toHaveTextContent("切换网关后需要重新选择 model");
     expect(document.querySelector('option[value="model-b"]')).not.toBeNull();
-    expect(screen.getByText(/自动路由：Anthropic Messages → OpenAI Chat Completions/)).toBeInTheDocument();
+    expect(screen.getByText(/本地代理 · 协议转换：Anthropic Messages → OpenAI Chat Completions/)).toBeInTheDocument();
 
     await user.selectOptions(modelInput, "model-b");
     await user.click(screen.getByRole("button", { name: "保存问答配置" }));

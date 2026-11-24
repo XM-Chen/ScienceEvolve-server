@@ -415,7 +415,7 @@ export interface ExplainerInvocationRequest {
     protocol: HarnessProtocol;
   };
   model: string;
-  reasoningEffort: "low" | "medium" | "high" | "xhigh";
+  reasoningEffort: "low" | "medium" | "high" | "xhigh" | "max";
   prompt: string;
   assistantMcp?: { url: string };
   session?: SessionRef;
