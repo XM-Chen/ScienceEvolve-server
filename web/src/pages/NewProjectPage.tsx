@@ -418,7 +418,7 @@ function AgentConfigCard({
         {(reasoningOptions.length > 0 || config.gatewayReasoningOption) && <label className="field">
           <span>
             <Gauge size={14} />
-            网关思考强度
+            思考等级
           </span>
           <div className="select-wrap">
             <select
@@ -426,11 +426,10 @@ function AgentConfigCard({
               onChange={(event) => onGatewayReasoningOptionChange(event.target.value || undefined)}
               aria-label={`${meta.name}网关思考强度`}
             >
-              <option value="">{selectedGateway?.autoReasoning !== false && selectedGateway?.modelReasoning?.[config.model]?.defaultOptionId
-                ? `自动（${selectedGateway.modelReasoning[config.model]!.defaultOptionId}）` : "模型 / 网关默认（不发送字段）"}</option>
+              <option value="">使用网关默认（{selectedGateway?.modelReasoning?.[config.model]?.defaultOptionId ?? "max"}）</option>
               {config.gatewayReasoningOption && !reasoningOptions.some((option) => option.id === config.gatewayReasoningOption) && <option value={config.gatewayReasoningOption} disabled>{config.gatewayReasoningOption} · 已失效</option>}
               {reasoningOptions.map((option) => <option key={option.id} value={option.id}>
-                {option.label} · {option.value}
+                {option.label}
               </option>)}
             </select>
             <ChevronDown size={15} />

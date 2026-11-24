@@ -147,7 +147,7 @@ There are two configuration routes.
 After startup, open “全局网关库” (global gateway library):
 
 1. Click “新增网关” (add gateway).
-2. Enter a display name, HTTPS endpoint, and API key. Connect to the relevant VPN or private network first when required.
+2. Enter a display name, gateway endpoint, and API key. Connect to the relevant VPN or private network first when required.
 3. Select the gateway's actual protocol: Responses, Chat Completions, or Anthropic Messages.
 4. Refresh or manually add available models. Set each model's context length, defaulting to 256K with a maximum of 1M, then choose a default model.
 5. Save and click “测试连接” (test connection).
@@ -156,9 +156,13 @@ After startup, open “全局网关库” (global gateway library):
 
 The selected `Harness + gateway + model` configuration is validated before project startup. When the Harness and gateway use different native protocols, the runtime routes between them automatically. Missing, failed, or stale connection tests produce a warning; configuration can still be saved, recommendations generated, and execution attempted. Actual call failures are reported.
 
-Each Gateway can declare a reasoning parameter path and candidate values per model, from which the Agent selects an option. Supported paths are `reasoning_effort`, `reasoning.effort`, `chat_template_kwargs.reasoning_effort`, and `thinking.effort`. If no option is selected, the parameter is omitted. Changes to mappings, candidates, or the Gateway revision invalidate old combination probes. Revalidate with the new option or attempt execution directly. Gateway reasoning and the Harness-native `reasoningEffort` are separate fields; Main cannot change either through dynamic reconfiguration.
+Each model has a reasoning-level dropdown with `low`, `medium`, `high`, `xhigh`, and `max`, defaulting to `max` for new models. Agents inherit the gateway's model default unless explicitly overridden. Parameter paths follow the gateway protocol and can be changed under advanced settings. Values are forwarded as selected; unsupported levels return the provider error instead of being silently downgraded.
 
-Gateway endpoints must use HTTPS on port 443. Public and RFC1918 private addresses are accepted; private gateways require network access from the machine running ScienceEvolve. Loopback, CGNAT, link-local metadata, multicast, documentation, benchmark, other reserved addresses, and DNS results mixing public and private addresses are rejected. Saving checks URL format; connection tests and startup checks verify actual network and protocol compatibility.
+Automatic reasoning discovery is disabled by default. Model lists are refreshed manually. Connection checks launch the selected native CLI, defaulting to Codex, without first sending server-side text/tool protocol probes. Model verification runs only after the user requests it.
+
+HTTPS gateways use port 443. Enter HTTP gateway addresses and ports directly in the UI, such as `http://127.0.0.1:8317/v1`; no additional allowlist or server restart is required. HTTP transmits API keys and request contents without encryption, so connect only to trusted endpoints and networks.
+
+`localhost`, `127.0.0.1`, and `[::1]` HTTP gateways can reach loopback. Public and RFC1918 private addresses are also supported. CGNAT, link-local metadata, multicast, documentation, benchmark, other reserved addresses, and DNS results mixing public and private addresses remain blocked. Agent Web Fetch still requires public HTTPS. Saving checks URL format; connection tests and startup checks verify actual network and protocol compatibility.
 
 #### Option 2: Initialize from environment variables
 
@@ -235,7 +239,7 @@ Access and refresh tokens are stored only on Server, encrypted with AES-256-GCM 
 
 Use absolute executable paths for external Harness installations. `SCIENCEEVOLVE_HARNESS_ROOT` can point to a custom root containing `codex/`, `dsh/`, and `pi/`. With a custom root, explicitly setting `SCIENCEEVOLVE_CODEX_BIN` is still recommended.
 
-After configuration, check Harness availability on the gateway page. Use the gateway matrix to run the protocol route probe and actual Adapter smoke probe. A combination is verified when both pass and its cached identity still matches the current Gateway revision, Adapter version, and executable. Test status is advisory and does not prevent an execution attempt. See the [Harness runtime overview](../harness/README_en.md) and [adding a Harness](adding-a-harness-en.md).
+After configuration, check the local tool installation table on the gateway page. It distinguishes installed executables from supported, available Harness adapters. Connection verification uses the selected native CLI, defaulting to Codex, and does not first issue direct server-side model probes. Its result is reused only while the Gateway revision, Adapter version, and executable identity still match. Test status is advisory and does not prevent an execution attempt. See the [Harness runtime overview](../harness/README_en.md) and [adding a Harness](adding-a-harness-en.md).
 
 Harness availability is published separately for each Catalog capability. Workflow support does not automatically make a Harness available in Project Explainer. Explainer supports Codex, pi, and DSH, defaulting to Codex. The interactive assistant's native Harness keeps files read-only and disables Shell and browser access. Only the dedicated product MCP is injected for the current turn, allowing context reads, draft edits and saves, undo, and Workflow change submissions for existing projects. Independent configuration recommendation calls still disable all MCP services. Switching Harness recreates the native session while preserving Explainer history.
 
@@ -247,8 +251,7 @@ Configure each Agent on “新建项目” (new project) or the Workflow canvas:
 | --- | --- |
 | Harness | CLI that executes the Agent. |
 | Gateway and model | Select from the global gateway library. Unverified combinations show a warning and can still be attempted. |
-| Harness reasoning level | `low`, `medium`, `high`, or `xhigh`, passed to the selected Harness. |
-| Gateway reasoning | Select a candidate from the Gateway/model configuration; omission sends no upstream parameter. |
+| Reasoning level | `low`, `medium`, `high`, `xhigh`, or `max`; inherits the gateway model default, initially `max`. |
 | Prompt | Complete responsibilities, input constraints, and output requirements. |
 | Fixed Skills | Loaded on every call. |
 | Automatic Skills | Available as candidates for the Agent to select for the current task. |

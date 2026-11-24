@@ -1505,9 +1505,9 @@ export class Orchestrator {
       delete config.reasoningEffort;
       delete config.legacyReasoningEffort;
       let reasoning: ReturnType<typeof resolveGatewayReasoning>;
-      // An explicit Agent choice wins; only previously confirmed defaults are
-      // used here. Project creation never probes the model or scans gateways.
-      if (!config.gatewayReasoningOption && gateway.autoReasoning !== false && gateway.modelReasoning?.[config.model]?.defaultOptionId)
+      // An explicit Agent choice wins; otherwise inherit the configured model
+      // default. Project creation never probes the model or scans gateways.
+      if (!config.gatewayReasoningOption && gateway.modelReasoning?.[config.model]?.defaultOptionId)
         config.gatewayReasoningOption = gateway.modelReasoning[config.model]!.defaultOptionId;
       try {
         reasoning = resolveGatewayReasoning(

@@ -40,9 +40,13 @@ const HARNESS_PURPOSES = new Set(["workflow", "explainer", "probe"]);
 const HARNESS_PROTOCOLS = new Set(["responses", "chat-completions", "anthropic-messages"]);
 const REQUIRED_PERMISSIONS = new Set(["workspace", "compute", "yolo"]);
 const SAFE_ENV_KEY = /^[A-Z][A-Z0-9_]{0,127}$/;
-const WINDOWS_NPM_ENTRYPOINTS: Readonly<Record<string, readonly string[]>> = {
-  dsh: ["@deepseek-ai", "dsh", "lib", "bin.js"],
-  pi: ["@mariozechner", "pi-coding-agent", "dist", "cli.js"]
+const WINDOWS_NPM_ENTRYPOINTS: Readonly<Record<string, readonly (readonly string[])[]>> = {
+  dsh: [["@deepseek-ai", "dsh", "lib", "bin.js"]],
+  pi: [
+    ["@earendil-works", "pi-coding-agent", "dist", "bundle", "cli.js"],
+    ["@earendil-works", "pi-coding-agent", "dist", "cli.js"],
+    ["@mariozechner", "pi-coding-agent", "dist", "cli.js"]
+  ]
 };
 
 function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
@@ -267,9 +271,14 @@ export class HarnessRegistry {
       try {
         const executable = await adapter.resolveExecutable();
         if (!executable) {
+          const desktop = descriptor.id === "dsh" && process.env.SCIENCEEVOLVE_DSH_DESKTOP_BIN
+            ? await isExecutable(process.env.SCIENCEEVOLVE_DSH_DESKTOP_BIN)
+            : false;
           return toPublicHarnessDescriptor(descriptor, {
             available: false,
-            availabilityReason: "项目内置或显式配置的可执行入口未找到或不可执行"
+            availabilityReason: desktop
+              ? "检测到 DSH Desktop 及附带 CLI；原版尚未适配桌面版启动与 SDK 模块"
+              : "项目内置或显式配置的可执行入口未找到或不可执行"
           });
         }
         return toPublicHarnessDescriptor(descriptor, {
@@ -382,13 +391,13 @@ async function resolveExecutableCandidate(
   if ([".exe", ".com", ".js", ".mjs", ".cjs"].includes(extension)) {
     return await isExecutable(candidate) ? realpath(candidate) : undefined;
   }
-  const entrypoint = WINDOWS_NPM_ENTRYPOINTS[descriptor.id];
-  if (!entrypoint) return undefined;
+  const entrypoints = WINDOWS_NPM_ENTRYPOINTS[descriptor.id];
+  if (!entrypoints) return undefined;
   const binDirectory = path.dirname(candidate);
-  const targets = [
+  const targets = entrypoints.flatMap(entrypoint => [
     path.resolve(binDirectory, "..", ...entrypoint),
     path.resolve(binDirectory, "node_modules", ...entrypoint)
-  ];
+  ]);
   for (const target of targets) {
     if (await isExecutable(target)) return realpath(target);
   }

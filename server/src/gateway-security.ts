@@ -73,26 +73,30 @@ function canonicalHostname(hostname: string): string {
   return hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "").replace(/\.$/, "");
 }
 
-/** Validate and canonicalize the HTTPS URL stored for a gateway. */
+/** Validate and canonicalize a gateway URL without making a network request. */
 export function validateGatewayUrl(value: string): string {
   const trimmed = value.trim();
   let parsed: URL;
   try {
     parsed = new URL(trimmed);
   } catch {
-    throw new Error("网关 URL 必须是有效的 HTTPS 地址");
+    throw new Error("网关 URL 必须是有效的 HTTP 或 HTTPS 地址");
   }
-  if (parsed.protocol !== "https:") {
-    throw new Error("网关 URL 仅支持 HTTPS");
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("网关 URL 仅支持 HTTP 或 HTTPS");
   }
   if (parsed.username || parsed.password || parsed.search || parsed.hash) {
     throw new Error("网关 URL 不允许携带用户信息、查询参数或片段");
   }
-  if (parsed.port && parsed.port !== "443") {
+  if (parsed.protocol === "https:" && parsed.port && parsed.port !== "443") {
     throw new Error("网关 URL 仅允许 HTTPS 443 端口");
   }
   parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
   return parsed.toString().replace(/\/$/, "");
+}
+
+function isExplicitLoopback(address: string): boolean {
+  return address === "127.0.0.1" || address === "::1";
 }
 
 const defaultResolver: GatewayHostnameResolver = async (hostname) =>
@@ -125,11 +129,6 @@ function gatewayDnsResolutionError(hostname: string, error: unknown): Error {
   return new Error(`网关域名 DNS 解析失败${codeSuffix}：${hostname}`);
 }
 
-/**
- * Resolve the gateway immediately before network access. Public and RFC1918
- * addresses are accepted. Loopback, link-local, CGNAT, metadata, multicast,
- * documentation, benchmark and mixed public/private answers remain blocked.
- */
 export async function validateGatewayNetworkTarget(
   value: string,
   resolver: GatewayHostnameResolver = defaultResolver
@@ -151,7 +150,11 @@ async function validateNetworkTarget(
   allowPrivate: boolean
 ): Promise<string> {
   const canonical = validateGatewayUrl(value);
-  const hostname = canonicalHostname(new URL(canonical).hostname);
+  const parsed = new URL(canonical);
+  if (!allowPrivate && parsed.protocol !== "https:") {
+    throw new Error("Web Fetch 仅支持 HTTPS");
+  }
+  const hostname = canonicalHostname(parsed.hostname);
   let addresses: readonly string[];
   if (isIP(hostname) !== 0) {
     addresses = [hostname];
@@ -168,7 +171,13 @@ async function validateNetworkTarget(
   if (addresses.some((address) => isIP(address) === 0)) {
     throw new Error(`网关 DNS 返回了无效的 IP 地址：${hostname}`);
   }
-  const blockedAddress = addresses.find(isBlockedGatewayIp);
+  const allowLoopback = allowPrivate && parsed.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "::1"].includes(hostname);
+  if (allowLoopback && addresses.some((address) => !isExplicitLoopback(address))) {
+    throw new Error("本机网关只能解析到 127.0.0.1 或 ::1");
+  }
+  const blockedAddress = addresses.find((address) =>
+    isBlockedGatewayIp(address) && !(allowLoopback && isExplicitLoopback(address)));
   if (blockedAddress) {
     throw new Error(`网关地址指向被禁止的本机、链路本地、元数据、CGNAT、组播或保留地址：${blockedAddress}`);
   }

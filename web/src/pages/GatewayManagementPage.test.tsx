@@ -28,6 +28,7 @@ vi.mock("../api", () => ({
   deleteGateway: vi.fn(),
   discoverGatewayModels: vi.fn(),
   getCatalog: vi.fn(),
+  getHarnessInstallations: vi.fn(async () => []),
   getGateways: vi.fn(),
   refreshGatewayReasoning: vi.fn(),
   refreshGatewayModels: vi.fn(),
@@ -390,6 +391,28 @@ describe("GatewayManagementPage", () => {
       }
     });
     expect(screen.queryByText("secret-value")).not.toBeInTheDocument();
+  });
+
+  it("accepts an HTTP gateway without requiring a server allowlist", async () => {
+    const user = userEvent.setup();
+    vi.mocked(createGateway).mockResolvedValue({
+      ...gateway, id: "gwy_http", name: "本地网关", url: "http://127.0.0.1:8317/v1"
+    });
+    render(<GatewayManagementPage onBack={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "新增网关" }));
+    await user.type(screen.getByLabelText("网关显示名称"), "本地网关");
+    await user.clear(screen.getByLabelText("网关 URL"));
+    await user.type(screen.getByLabelText("网关 URL"), "http://127.0.0.1:8317/v1");
+    expect(screen.getByText(/HTTP 不加密请求和密钥/)).toBeInTheDocument();
+    expect(screen.queryByText(/允许列表/)).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("网关 API key"), "fixture-key");
+    await user.click(screen.getByRole("button", { name: "添加 model" }));
+    await user.type(screen.getByLabelText("新 model 名称"), "model-http");
+    await user.click(screen.getByRole("button", { name: "确认" }));
+    await user.click(screen.getByRole("button", { name: "保存网关" }));
+    await waitFor(() => expect(createGateway).toHaveBeenCalledWith(expect.objectContaining({
+      url: "http://127.0.0.1:8317/v1", models: ["model-http"]
+    })));
   });
 
   it("refreshes models inside the editor and selects the returned default model", async () => {

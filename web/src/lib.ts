@@ -387,7 +387,7 @@ export function gatewayCombinationTestState(
   harnesses: HarnessCatalogEntry[] = [],
   reasoningOptionId?: string
 ): GatewayTestState {
-  reasoningOptionId ??= gateway.autoReasoning === false ? undefined : gateway.modelReasoning?.[model]?.defaultOptionId;
+  reasoningOptionId ??= gateway.modelReasoning?.[model]?.defaultOptionId;
   const tests = gateway.tests?.length ? gateway.tests : [gateway.test];
   const catalogHarness = harnesses.find((entry) => entry.id === harness);
   const nativeProtocol = catalogHarness?.nativeProtocol

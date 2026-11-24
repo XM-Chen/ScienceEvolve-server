@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -12,6 +13,7 @@ import {
   type AdapterSmokeProbeRunner,
   type GatewayTestState
 } from "../src/agent-runtime.js";
+import { validatePublicWebNetworkTarget } from "../src/gateway-security.js";
 import { PROTOCOL_ROUTER_COMPATIBILITY_VERSION } from "../src/protocol-router.js";
 
 const roots: string[] = [];
@@ -146,18 +148,78 @@ describe("global gateway library", () => {
     await expect(registry.seedBuiltin(input!)).resolves.toBeUndefined();
   });
 
-  it("accepts canonical HTTPS gateway URLs without performing DNS resolution", () => {
+  it("accepts canonical HTTP and HTTPS gateway URLs without performing DNS resolution", () => {
     expect(validateGatewayUrl("https://gateway.example.com:443/v1/")).toBe("https://gateway.example.com/v1");
     expect(validateGatewayUrl("https://[2606:4700:4700::1111]/v1/")).toBe("https://[2606:4700:4700::1111]/v1");
     expect(validateGatewayUrl("https://10.2.3.4/v1/")).toBe("https://10.2.3.4/v1");
+    expect(validateGatewayUrl("http://127.0.0.1:8317/v1/")).toBe("http://127.0.0.1:8317/v1");
+    expect(validateGatewayUrl("http://10.2.3.4:8080/v1/")).toBe("http://10.2.3.4:8080/v1");
     for (const invalid of [
-      "http://gateway.example.com/v1",
       "ftp://gateway.example.com/v1",
       "https://gateway.example.com:8443/v1",
       "https://user:pass@gateway.example.com/v1",
       "https://gateway.example.com/v1?token=secret",
       "https://gateway.example.com/v1#token"
     ]) expect(() => validateGatewayUrl(invalid)).toThrow();
+  });
+
+  it("connects directly to local, private and public HTTP gateways", async () => {
+    const registry = await store();
+    await expect(registry.assertAllowedNetworkTarget("http://127.0.0.1:8317/v1"))
+      .resolves.toBeUndefined();
+    await expect(registry.assertAllowedNetworkTarget("http://[::1]:8317/v1")).resolves.toBeUndefined();
+    await expect(registry.assertAllowedNetworkTarget("http://10.2.3.4:8080/v1")).resolves.toBeUndefined();
+    await expect(registry.assertAllowedNetworkTarget("http://gateway.example.com:8080/v1")).resolves.toBeUndefined();
+  });
+
+  it("retains address protections for HTTP gateways and public Web Fetch", async () => {
+    const localhost = await store(vi.fn<typeof fetch>(), async () => ["127.0.0.1", "::1"]);
+    await expect(localhost.assertAllowedNetworkTarget("http://localhost:8317/v1")).resolves.toBeUndefined();
+    const unexpectedLocalhost = await store(vi.fn<typeof fetch>(), async () => ["93.184.216.34"]);
+    await expect(unexpectedLocalhost.assertAllowedNetworkTarget("http://localhost:8317/v1"))
+      .rejects.toThrow("本机网关只能解析到");
+    const loopbackAlias = await store(vi.fn<typeof fetch>(), async () => ["127.0.0.1"]);
+    await expect(loopbackAlias.assertAllowedNetworkTarget("http://alias.example:8317/v1"))
+      .rejects.toThrow("被禁止的本机");
+    await expect(localhost.assertAllowedNetworkTarget("http://169.254.169.254/v1"))
+      .rejects.toThrow("被禁止的本机");
+    const mixed = await store(vi.fn<typeof fetch>(), async () => ["10.2.3.4", "93.184.216.34"]);
+    await expect(mixed.assertAllowedNetworkTarget("http://mixed.example:8080/v1"))
+      .rejects.toThrow("不能同时解析到公网和内网地址");
+    await expect(validatePublicWebNetworkTarget("http://localhost:8317/page", async () => ["127.0.0.1"]))
+      .rejects.toThrow("Web Fetch 仅支持 HTTPS");
+  });
+
+  it("discovers models and probes a real local HTTP gateway without extra configuration", async () => {
+    const requests: string[] = [];
+    const upstream = createServer(async (request, response) => {
+      requests.push(`${request.method} ${request.url}`);
+      if (request.method === "GET" && request.url === "/v1/models") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ data: [{ id: "model-http" }] }));
+        return;
+      }
+      let body = "";
+      for await (const chunk of request) body += String(chunk);
+      const result = await successfulResponsesProbeForTest("", { body });
+      response.writeHead(result.status, Object.fromEntries(result.headers));
+      response.end(Buffer.from(await result.arrayBuffer()));
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const address = upstream.address();
+    if (!address || typeof address === "string") throw new Error("No fixture address");
+    const origin = `http://127.0.0.1:${address.port}`;
+    try {
+      const registry = await store();
+      const input = { ...gatewayInput, url: `${origin}/v1`, models: ["model-http"], defaultModel: "model-http" };
+      await expect(registry.discoverModels(input)).resolves.toEqual(["model-http"]);
+      const gateway = await registry.create(input);
+      await expect(registry.test(gateway.id)).resolves.toMatchObject({ status: "passed", model: "model-http" });
+      expect(requests).toContain("GET /v1/models");
+      expect(requests).toContain("POST /v1/responses");
+    } finally {
+      await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    }
   });
 
   it("saves unresolved VPN gateways without requiring a live DNS result", async () => {

@@ -1925,6 +1925,20 @@ export async function getGitHubRepositoryStatus(projectId: string): Promise<GitH
 export async function getCatalog(): Promise<Catalog> {
   return loadResource("catalog", loadCatalog);
 }
+
+export interface HarnessInstallation {
+  id: string;
+  label: string;
+  installed: boolean;
+  available: boolean;
+  message: string;
+}
+
+export async function getHarnessInstallations(): Promise<HarnessInstallation[]> {
+  const result = await request("/api/runtime/installations") as { installations?: HarnessInstallation[] };
+  return Array.isArray(result.installations) ? result.installations : [];
+}
+
 async function loadCatalog(): Promise<Catalog> {
   const result = await request("/api/skills");
   const record =

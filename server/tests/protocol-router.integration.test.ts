@@ -121,6 +121,33 @@ describe("protocol proxy loopback integration", () => {
     upstream = undefined;
   });
 
+  it("routes a model request through a local HTTP gateway without extra configuration", async () => {
+    const received: Array<{ url?: string; authorization?: string }> = [];
+    upstream = createServer(async (request, response) => {
+      for await (const _chunk of request) { /* Drain the request. */ }
+      received.push({ url: request.url, authorization: request.headers.authorization });
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(responseBody("chat-completions")));
+    });
+    const address = await listen(upstream);
+    const origin = `http://127.0.0.1:${address.port}`;
+    const options: ProtocolProxyOptions = {
+      sourceProtocol: "responses", targetProtocol: "chat-completions",
+      gatewayUrl: `${origin}/v1`, gatewayApiKey: "fixture-gateway-key", force: true
+    };
+    proxy = await startValidatedProtocolProxy(options);
+    const response = await fetch(`${proxy.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${proxy.token}` },
+      body: JSON.stringify(sourceBody("responses", false))
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("hello from chat");
+    expect(received).toEqual([{
+      url: "/v1/chat/completions", authorization: "Bearer fixture-gateway-key"
+    }]);
+  });
+
   it("reserves the shared timeout budget for buffered recovery and remembers it for the invocation", async () => {
     const bodies: Array<{ stream: boolean }> = [];
     const activity = vi.fn();

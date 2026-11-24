@@ -147,7 +147,7 @@ Linux 执行层通过进程亲缘、继承的启动标识、PID 命名空间、�
 启动系统后进入“全局网关库”，按以下步骤操作：
 
 1. 点击“新增网关”。
-2. 填写显示名称、HTTPS 地址和 API key。VPN / 内网网关需要先连接相应网络。
+2. 填写显示名称、网关地址和 API key。VPN / 内网网关需要先连接相应网络。
 3. 选择网关实际使用的协议：Responses、Chat Completions 或 Anthropic Messages。
 4. 刷新或手工添加可用模型，为每个模型设置上下文长度（默认 256K，最大 1M），再指定默认模型。
 5. 保存后执行“测试连接”。
@@ -156,9 +156,13 @@ Linux 执行层通过进程亲缘、继承的启动标识、PID 命名空间、�
 
 项目启动前会校验所选 `Harness + 网关 + model` 配置。Harness 的原生协议与网关协议不一致时，系统会自动经过协议路由。连接测试未验证、失败或旧记录失效时，界面会提醒运行可能失败，仍可保存配置、生成推荐和尝试执行；实际调用失败会显示错误。
 
-每个 Gateway 可按 model 配置独立的“思考参数路径 + 候选值”，再由 Agent 选择一个 option。支持 `reasoning_effort`、`reasoning.effort`、`chat_template_kwargs.reasoning_effort` 和 `thinking.effort`，适配不同供应商字段；不选择时不会发送该参数。映射、候选值或 Gateway revision 改变后，旧的组合探测会失效，可按新 option 重新验证，也可直接尝试运行。这个 Gateway reasoning 选择与 Harness 原生的 `reasoningEffort` 是两个字段，Main 动态重配置无权修改任何一个。
+每个模型使用直观的“思考等级”下拉框：`low`、`medium`、`high`、`xhigh`、`max`，新模型默认 `max`。项目中的 Agent 可以覆盖网关默认等级；未覆盖时沿用该模型的网关默认值。参数字段按协议选择，特殊网关可在“高级参数”中调整。等级按字面值发送，模型不支持时会返回错误，不会悄悄降级。Main 动态重配置不能修改思考等级。
 
-网关必须使用 HTTPS 443。公网地址和 RFC1918 私网地址均可直接配置；私网网关仍需由运行 ScienceEvolve 的机器先连接 VPN 或目标内网。本机回环、CGNAT、链路本地元数据、组播、文档测试、基准测试、其他保留地址，以及同时返回公网和私网地址的 DNS 结果仍会被拒绝。保存网关时只校验 URL 格式，真实网络与协议兼容性由“测试连接”和项目启动检查验证。
+自动探测思考参数默认关闭。模型列表由“刷新 models”手动获取；保持自动探测关闭时，保存网关不会发送模型能力探测。页面中的“测试连接”默认通过 Codex CLI 执行；选择其他已适配 Harness 时使用其原生 CLI，不再先运行服务端直接发送的文本/工具协议探测。只有用户主动点击验证或运行任务才会调用模型；重新开启自动探测会恢复后台能力探测。
+
+HTTPS 网关仍使用 443 端口。HTTP 网关可以直接在界面中填写地址和端口，例如 `http://127.0.0.1:8317/v1`，不需要额外配置允许列表或重启服务。HTTP 不加密 API key 和请求内容，请只连接可信的目标及网络。
+
+`localhost`、`127.0.0.1` 和 `[::1]` HTTP 网关可以连接本机，公网地址和 RFC1918 私网地址也受支持。CGNAT、链路本地元数据、组播、文档测试、基准测试、其他保留地址，以及同时返回公网和私网地址的 DNS 结果仍会被拒绝。Agent 的网页抓取仍要求公共 HTTPS。保存网关时只校验 URL 格式，真实网络与协议兼容性由“测试连接”和项目启动检查验证。
 
 #### 方法二：首次启动时从环境变量初始化
 
@@ -235,7 +239,7 @@ SCIENCEEVOLVE_GITHUB_OAUTH_CALLBACK_URL=http://127.0.0.1:5173/api/github/auth/ca
 
 外部 Harness 变量建议使用可执行文件的绝对路径。也可以通过 `SCIENCEEVOLVE_HARNESS_ROOT` 指向一个包含 `codex/`、`dsh/` 和 `pi/` 子目录的自定义 Harness 根目录；使用自定义根目录时仍建议显式配置 `SCIENCEEVOLVE_CODEX_BIN`。
 
-配置完成后，可在全局网关页查看 Harness 是否可用，并用网关矩阵依次完成协议 route probe 与真实 Adapter smoke probe。两者都通过且身份缓存仍匹配当前 Gateway revision、Adapter 版本和可执行文件时，该组合显示为已验证；测试状态仅作提醒，不阻止尝试执行。更详细的内置运行时说明见 [harness/README.md](../harness/README.md)；扩展步骤见 [新增 Harness 指南](adding-a-harness.md)。
+全局网关页的“本机执行工具”区分“已安装”和“已接入可运行”。默认使用 Codex CLI；Windows 下支持当前 `@earendil-works/pi-coding-agent` 和旧版 Pi 的入口识别。DSH Desktop、Claude Code 和 OpenCode 的安装入口会列出，但没有相应运行适配时不会标记为可用。DSH 桌面版诊断路径可通过 `SCIENCEEVOLVE_DSH_DESKTOP_BIN` 指定。用户主动发起的原生 CLI 验证成功后，该组合才显示已验证。更详细的内置运行时说明见 [harness/README.md](../harness/README.md)；扩展步骤见 [新增 Harness 指南](adding-a-harness.md)。
 
 Harness 的用途按 Catalog 能力分别发布，不会因为能运行工作流就自动出现在 Project Explainer 中。项目解说可在 Codex、pi 和 DSH 之间选择，默认使用 Codex。交互助手的原生 Harness 保持文件只读、Shell 和浏览器禁用，仅注入本轮专用的产品 MCP，可读取上下文、修改与保存草稿、撤销修改，以及提交现有项目的 Workflow 调整。配置推荐等独立调用仍禁用所有 MCP。切换 Harness 会重建原生会话，同时保留项目解说历史。
 
@@ -247,8 +251,7 @@ Harness 的用途按 Catalog 能力分别发布，不会因为能运行工作流
 | --- | --- |
 | Harness | 选择实际执行该 Agent 的 CLI。 |
 | 网关与模型 | 从全局网关库中选择组合，未通过验证时显示提醒并允许尝试运行。 |
-| Harness 思考深度 | `low`、`medium`、`high` 或 `xhigh`，传给所选 Harness。 |
-| Gateway reasoning | 从当前 Gateway/model 配置的候选值中选择；省略时不注入上游字段。 |
+| 思考等级 | `low`、`medium`、`high`、`xhigh`、`max`；默认沿用网关模型设置，新模型为 `max`。 |
 | Prompt | 该 Agent 的完整职责、输入约束和输出要求。 |
 | 固定 Skills | 每次调用都加载。 |
 | 自动 Skills | 作为候选项，由 Agent 根据当前任务选择。 |

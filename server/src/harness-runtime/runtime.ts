@@ -3098,8 +3098,7 @@ export class HarnessRuntimeFacade implements AgentRunner, AdapterSmokeProbeRunne
     const assistantServers = input.assistantMcp ? [{ name: EXPLAINER_MCP_NAME, url: input.assistantMcp.url }] : [];
     if (assistantServers.some(server => !isExplainerMcp(server)) || assistantServers.length && !adapter.descriptor.capabilities.mcp)
       throw new Error("所选 Harness 无法提供 Project Explainer 交互工具。");
-    const reasoningOptionId = input.gateway.autoReasoning === false ? undefined
-      : input.gateway.modelReasoning?.[input.model]?.defaultOptionId;
+    const reasoningOptionId = input.gateway.modelReasoning?.[input.model]?.defaultOptionId;
     const reasoning = resolveGatewayReasoning(input.gateway.modelReasoning, input.model, reasoningOptionId);
     const config = {
       model: input.model,

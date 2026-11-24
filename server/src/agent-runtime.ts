@@ -8,6 +8,7 @@ import {
   validateGatewayUrl,
   type GatewayHostnameResolver
 } from "./gateway-security.js";
+import { gatewayReasoningLevelConfigs } from "./gateway-reasoning-levels.js";
 import { requiredToolChoiceRejected, specifiedToolChoiceFallback } from "./gateway-tool-choice.js";
 import {
   convertProtocolResponse,
@@ -433,10 +434,8 @@ export function normalizeGatewayInput(input: GatewayInput): GatewayInput {
     }
     return [model, value as number];
   }));
-  const modelReasoning = normalizeGatewayModelReasoningConfigs(
-    models,
-    input.modelReasoning
-  );
+  const modelReasoning = gatewayReasoningLevelConfigs(models, input.protocol,
+    normalizeGatewayModelReasoningConfigs(models, input.modelReasoning));
   const defaultModel = input.defaultModel.trim();
   if (!models.includes(defaultModel)) throw new Error("默认 model 必须在网关模型列表中");
   if (!AGENT_PROTOCOLS.includes(input.protocol)) throw new Error("网关必须声明一种有效协议");
@@ -447,7 +446,7 @@ export function normalizeGatewayInput(input: GatewayInput): GatewayInput {
     models,
     modelContextWindows,
     modelReasoning,
-    ...(input.autoReasoning !== undefined ? { autoReasoning: input.autoReasoning !== false } : {}),
+    autoReasoning: input.autoReasoning === true,
     defaultModel,
     protocol: input.protocol
   };
@@ -466,7 +465,7 @@ export function gatewayCombinationPassed(
   harness?: AgentHarness,
   reasoningOptionId?: string
 ): boolean {
-  reasoningOptionId ??= gateway.autoReasoning === false ? undefined : gateway.modelReasoning?.[model]?.defaultOptionId;
+  reasoningOptionId ??= gateway.modelReasoning?.[model]?.defaultOptionId;
   const records = gateway.tests?.length ? gateway.tests : [gateway.test];
   const routeRecords = records.filter((test) =>
     (test.probeKind === undefined || test.probeKind === "route") &&
@@ -591,7 +590,7 @@ export class GatewayStore {
     reasoningOptionId?: string
   ): Promise<boolean> {
     const gateway = await this.get(id);
-    reasoningOptionId ??= gateway?.autoReasoning === false ? undefined : gateway?.modelReasoning?.[model]?.defaultOptionId;
+    reasoningOptionId ??= gateway?.modelReasoning?.[model]?.defaultOptionId;
     if (!gateway || !this.adapterSmokeProbe ||
       !gatewayCombinationPassed(gateway, gateway.protocol, model, harness, reasoningOptionId)) {
       return false;
@@ -890,7 +889,6 @@ export class GatewayStore {
     return routeResult;
   }
 
-  /** Run a route probe followed by an actual target-Adapter sentinel read. */
   async testHarness(
     id: string,
     harness: AgentHarness,
@@ -909,19 +907,14 @@ export class GatewayStore {
     const model = requestedModel?.trim() || gateway.defaultModel;
     if (!gateway.models.includes(model)) throw new Error("该 model 不在网关声明的模型列表中");
     const reasoning = resolveGatewayReasoning(gateway.modelReasoning, model, reasoningOptionId);
-    const routeResult = await this.testHarnessRoute(id, harness, model, signal, onStage, reasoningOptionId);
-    if (routeResult.status !== "passed") {
-      const skippedSmokeStage = probeStageSnapshot(HARNESS_SMOKE_PROBE_STAGE, "skipped", {
-        error: "网关协议阶段未通过，未执行"
-      });
-      const failedRouteResult = {
-        ...routeResult,
-        stageResults: [...(routeResult.stageResults ?? []), skippedSmokeStage]
-      };
-      onStage?.(skippedSmokeStage);
-      await this.recordTest(id, failedRouteResult);
-      return failedRouteResult;
-    }
+    await this.assertAllowedNetworkTarget(gateway.url);
+    const routeResult: Pick<GatewayTestResult, "routeMode" | "routeDirection" | "deliveryMode" | "durationMs" | "stageResults"> = {
+      routeMode: nativeProtocol === gateway.protocol ? "direct" : "proxy",
+      deliveryMode: "native-stream",
+      ...(nativeProtocol === gateway.protocol ? {} : {
+        routeDirection: `${nativeProtocol}->${gateway.protocol}` as `${AgentProtocol}->${AgentProtocol}`
+      })
+    };
     throwIfProbeCancelled(signal);
 
     const smokeStartedAt = Date.now();
@@ -953,6 +946,9 @@ export class GatewayStore {
         stageResults: [...(routeResult.stageResults ?? []), smokeStage]
       };
       onStage?.(smokeStage);
+      if (finished.status === "passed") {
+        await this.recordTest(id, { ...finished, probeKind: "route" });
+      }
       await this.recordTest(id, finished);
       return finished;
     };
@@ -1419,7 +1415,7 @@ export class GatewayStore {
       await this.discoverReasoning(id, model, signal);
       gateway = (await this.get(id))!;
     }
-    return { gateway, optionId: optionId ?? (gateway.autoReasoning === false ? undefined : gateway.modelReasoning?.[model]?.defaultOptionId) };
+    return { gateway, optionId: optionId ?? gateway.modelReasoning?.[model]?.defaultOptionId };
   }
 
   private filePath(): string {

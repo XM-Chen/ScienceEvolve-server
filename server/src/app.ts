@@ -75,6 +75,7 @@ import {
   toPublicHarnessDescriptor
 } from "./harness-runtime/registry.js";
 import type { PublicHarnessDescriptor } from "./harness-runtime/contracts.js";
+import { harnessInstallations } from "./harness-runtime/installations.js";
 import { AGENT_PROTOCOLS } from "./agent-runtime.js";
 import { PROTOCOL_ROUTER_COMPATIBILITY_VERSION } from "./protocol-router.js";
 import { redactTrace, safeGitArtifactRelativePath, safeRelativePath } from "./utils.js";
@@ -569,7 +570,7 @@ export function createApp(dependencies: AppDependencies) {
       const reasoningOptionId = typeof body.gatewayReasoningOption === "string"
         ? body.gatewayReasoningOption
         : undefined;
-      let requestedHarness: string | undefined;
+      let requestedHarness: string = DEFAULT_HARNESS_ID;
       if (body.harness !== undefined) {
         const knownHarnessIds = new Set((await harnessCatalog()).map((item) => item.id));
         if (typeof body.harness !== "string" || !knownHarnessIds.has(body.harness)) {
@@ -578,9 +579,7 @@ export function createApp(dependencies: AppDependencies) {
         requestedHarness = body.harness;
       }
       if (!wantsGatewayMatrixStream(request)) {
-        const result = requestedHarness
-          ? await gatewayStore.testHarness(request.params.gatewayId, requestedHarness, model, signal, undefined, reasoningOptionId)
-          : await gatewayStore.test(request.params.gatewayId, undefined, model, signal, undefined, reasoningOptionId);
+        const result = await gatewayStore.testHarness(request.params.gatewayId, requestedHarness, model, signal, undefined, reasoningOptionId);
         response.json({ result, gateway: await gatewayStore.get(request.params.gatewayId).then((value) => value ? publicGateway(value) : undefined) });
         return;
       }
@@ -590,13 +589,9 @@ export function createApp(dependencies: AppDependencies) {
       response.setHeader("Cache-Control", "no-cache, no-transform");
       response.setHeader("X-Accel-Buffering", "no");
       response.flushHeaders?.();
-      const result = requestedHarness
-          ? await gatewayStore.testHarness(request.params.gatewayId, requestedHarness, model, signal, (stage) => {
-            writeGatewayTestStreamEvent(response, { type: "stage", stage });
-          }, reasoningOptionId)
-        : await gatewayStore.test(request.params.gatewayId, undefined, model, signal, (stage) => {
-            writeGatewayTestStreamEvent(response, { type: "stage", stage });
-          }, reasoningOptionId);
+      const result = await gatewayStore.testHarness(request.params.gatewayId, requestedHarness, model, signal, (stage) => {
+        writeGatewayTestStreamEvent(response, { type: "stage", stage });
+      }, reasoningOptionId);
       const gateway = await gatewayStore.get(request.params.gatewayId).then((value) => value ? publicGateway(value) : undefined);
       writeGatewayTestStreamEvent(response, { type: "result", result });
       writeGatewayTestStreamEvent(response, { type: "complete", gateway, result });
@@ -716,6 +711,12 @@ export function createApp(dependencies: AppDependencies) {
     } catch (error) {
       next(error);
     }
+  });
+
+  app.get("/api/runtime/installations", async (_request, response, next) => {
+    try {
+      response.json({ installations: await harnessInstallations(await harnessCatalog()) });
+    } catch (error) { next(error); }
   });
 
   app.get("/api/runtime/catalog", async (_request, response, next) => {
