@@ -549,8 +549,12 @@ function codexMcpConfig(
       const env = Object.entries({ ...row.env, [NATIVE_PROCESS_SUPPORT_ENV]: "1" })
         .map(([key, value]) => `${JSON.stringify(key)} = ${JSON.stringify(value)}`)
         .join(", ");
-      const controlBudget = row.namespace === "openfars-resident-control" ? `, tool_timeout_sec = ${Math.ceil(CONTROL_PROXY_TIMEOUT_MS / 1_000) + 10}` : "";
-      return `${JSON.stringify(row.name)} = { command = ${JSON.stringify(row.command)}, args = [${args}], env = { ${env} }${sleepTimeout}${approval}${indexOutput}${controlBudget} }`;
+      // A workflow turn needs its assigned control tools even when the
+      // gateway model does not discover deferred MCP tools.
+      const control = row.namespace === "openfars-resident-control"
+        ? `, tool_timeout_sec = ${Math.ceil(CONTROL_PROXY_TIMEOUT_MS / 1_000) + 10}, required = true, omit_tools_from = ["deferred", "code_mode"]`
+        : "";
+      return `${JSON.stringify(row.name)} = { command = ${JSON.stringify(row.command)}, args = [${args}], env = { ${env} }${sleepTimeout}${approval}${indexOutput}${control} }`;
     }
     if (!row.headers) {
       return `${JSON.stringify(row.name)} = { url = ${JSON.stringify(row.url)}${approval}${indexOutput} }`;

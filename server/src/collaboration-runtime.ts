@@ -9788,13 +9788,13 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
     });
   }
 
-  private protectedProjectRoots(projectId: string): string[] {
-    return this.#storage.projectDirectoryPaths(projectId).flatMap((projectRoot) => [
+  private protectedProjectRoots(state: Pick<ProjectState, "id" | "git">): string[] {
+    return this.#storage.projectDirectoryPaths(state.id).flatMap((projectRoot) => [
       path.join(projectRoot, "state.json"),
       path.join(projectRoot, "events.jsonl"),
       path.join(projectRoot, "messages"),
       path.join(projectRoot, "runtime"),
-      path.join(projectRoot, "repository")
+      ...(state.git?.enabled ? [path.join(projectRoot, "repository")] : [])
     ]);
   }
 
@@ -9844,7 +9844,7 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
     if (!state.git?.enabled) {
       const workspace = await this.#storage.roleWorkspace(state.id, "main", "inv_workspace");
       return { serviceUserRoot: this.#serviceUserRoot, projectWorktreeRoot: workspace,
-        projectWorktrees: [workspace], protectedRoots: this.protectedProjectRoots(state.id) };
+        projectWorktrees: [workspace], protectedRoots: this.protectedProjectRoots(state) };
     }
     const projectWorktreeRoot = path.join(projectRoot, "git-worktrees");
     // Main can run before the first member execution creates a worktree. The
@@ -9887,7 +9887,7 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
       serviceUserRoot: this.#serviceUserRoot,
       projectWorktreeRoot: realWorktreeRoot,
       projectWorktrees,
-      protectedRoots: this.protectedProjectRoots(state.id)
+      protectedRoots: this.protectedProjectRoots(state)
     };
   }
 
