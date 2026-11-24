@@ -43,6 +43,7 @@ import type {
 import { EventHub } from "./event-hub.js";
 import type { ScopedWorktreeClosingCompletionRecord, TerminalPushObservationCompletionRecord, TerminalPushCoordinatorTurn } from "./collaboration-state/contracts.js";
 import { validateProjectDirectoryAliases } from "./project-directory-aliases.js";
+import { WorkspaceBindings } from "./workspace-bindings.js";
 import { mergeProjectCheckpoint, prepareProjectStateDocumentView, prepareProjectStateDocumentViewSync, publishProjectStateDocumentView, readOnlyProjectStateDocuments, type ProjectStateDocument, type ProjectStateDocumentStore } from "./project-state-documents.js";
 import { buildWorkspaceManifest, type WorkspaceFileStamp, type WorkspaceManifest } from "./workspace-checkpoint.js";
 import { validateSessionRef } from "./harness-runtime/session-ref.js";
@@ -368,7 +369,7 @@ function compactTimelineEvent(event: TimelineEvent): TimelineEvent {
 
 export interface ProjectStorageOptions {
   projectDirectoryAliases?: Readonly<Record<string, string>>;
-  /** Trusted SDK host binding only; never supplied by workflow/HTTP input. */
+  /** Trusted host resolver, including existing SDK bindings. */
   workspaceResolver?: (projectId: string) => Promise<string | undefined>;
 }
 
@@ -405,6 +406,7 @@ export class ProjectStorage {
   private readonly workflowReferenceWrites = new Map<string, Promise<void>>();
   private readonly workspaceRoots = new Map<string, string>();
   private readonly workspaceResolver?: ProjectStorageOptions["workspaceResolver"];
+  private readonly workspaceBindings: WorkspaceBindings;
   private readonly directoryAliases: Readonly<Record<string, string>>;
   private readonly aliasIdentities = new Map<string, { dev: bigint; ino: bigint }>();
   private aliasesVerified = false;
@@ -416,6 +418,24 @@ export class ProjectStorage {
   ) {
     this.directoryAliases = validateProjectDirectoryAliases(options.projectDirectoryAliases ?? {});
     this.workspaceResolver = options.workspaceResolver;
+    this.workspaceBindings = new WorkspaceBindings(root);
+  }
+
+  inspectWorkspace(requested: string) {
+    return this.workspaceBindings.inspect(requested);
+  }
+
+  async bindWorkspace(projectId: string, requested: string): Promise<string> {
+    return this.workspaceBindings.bind(projectId, requested);
+  }
+
+  async releaseWorkspace(projectId: string): Promise<void> {
+    await this.workspaceBindings.release(projectId);
+    this.workspaceRoots.delete(this.projectDir(projectId));
+  }
+
+  private async selectedWorkspace(projectId: string): Promise<string | undefined> {
+    return await this.workspaceResolver?.(projectId) ?? await this.workspaceBindings.resolve(projectId);
   }
 
   private readProjectStateSource(): ProjectStateDocumentStore["source"] {
@@ -859,6 +879,7 @@ ${rolePrompts ? `## Role prompts\n\n${rolePrompts}\n` : ""}
       }
       await fs.rm(this.projectDir(projectId), { recursive: true, force: false });
     });
+    await this.releaseWorkspace(projectId);
     this.eventLogs.forget(path.join(this.projectDir(projectId), "events.jsonl"));
     this.workflowReplayLogs.forget(path.join(this.projectDir(projectId), "events.jsonl"));
     this.workspacePreparations.delete(projectId);
@@ -1529,7 +1550,7 @@ ${rolePrompts ? `## Role prompts\n\n${rolePrompts}\n` : ""}
   private async mainAgentOrchestrationSnapshotPath(projectId: string, fileName: string, invocationId: string): Promise<string> {
     this.assertInvocationId(invocationId);
     const workspace = await this.roleWorkspace(projectId, SYSTEM_CONTROLLER_AGENT, invocationId);
-    const selected = await this.workspaceResolver?.(projectId);
+    const selected = await this.selectedWorkspace(projectId);
     let directory = workspace;
     if (selected !== undefined) {
       for (const segment of [".scienceevolve", "management", projectId, "proposal"]) {
@@ -1841,7 +1862,7 @@ ${rolePrompts ? `## Role prompts\n\n${rolePrompts}\n` : ""}
   }
 
   private async prepareProjectWorkspace(projectId: string): Promise<string> {
-    const selected = await this.workspaceResolver?.(projectId);
+    const selected = await this.selectedWorkspace(projectId);
     const workspace = selected ?? path.join(this.projectDir(projectId), "workspaces");
     if (selected === undefined) await fs.mkdir(workspace, { recursive: true });
     const projectRoot = await fs.realpath(this.projectDir(projectId));
@@ -2829,7 +2850,7 @@ ${rolePrompts ? `## Role prompts\n\n${rolePrompts}\n` : ""}
     _includeArtifactContents = false
   ): Promise<{ text: string; index?: AgentContextIndex }> {
     const projectDir = await fs.realpath(this.projectDir(state.id));
-    const workspaceDir = await this.workspaceResolver?.(state.id) ?? path.join(projectDir, "workspaces");
+    const workspaceDir = await this.selectedWorkspace(state.id) ?? path.join(projectDir, "workspaces");
     let cursor = fullSync ? 0 : Math.max(0, Math.floor(afterSeq));
     let effectiveFullSync = fullSync;
     let events = await this.readEvents(state.id, cursor, Number.MAX_SAFE_INTEGER);

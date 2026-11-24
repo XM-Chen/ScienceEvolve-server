@@ -884,6 +884,7 @@ function SavedResearchTaskLibrary({
                       <small>更新于 {formatRelativeTime(task.updatedAt)}</small>
                     </span>
                     <p>{task.requirement}</p>
+                    {task.workspacePath && <small>工作目录：{task.workspacePath}</small>}
                     <div className="saved-task-metrics">
                       <span>{agentCount} 外层节点</span>
                       <span>Git {task.git?.enabled ? "开启" : "关闭"}</span>
@@ -2208,6 +2209,7 @@ export function ProjectListPage({
         onStart={async (task) => {
           const project = await createProject({
             sourceSavedTaskId: task.id,
+            workspacePath: task.workspacePath,
             title: task.title,
             requirement: task.requirement,
             agents: cloneAgentsConfig(task.agents),

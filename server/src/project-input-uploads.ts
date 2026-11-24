@@ -302,13 +302,13 @@ export class ProjectInputUploads {
     return attachments;
   }
 
-  async install(id: string, projectDir: string): Promise<void> {
+  async install(id: string, projectDir: string, selectedWorkspace?: string): Promise<void> {
     const session = this.session(id);
     if (!session.sealed) throw new ProjectInputUploadError("上传会话尚未准备好", 409);
     const sourceRoot = await this.validatedInputDir(id);
-    const destination = path.join(projectDir, "workspaces", "user_inputs");
+    const destination = path.join(selectedWorkspace ?? path.join(projectDir, "workspaces"), "user_inputs");
     await fs.mkdir(destination, { recursive: true });
-    const projectRoot = await fs.realpath(projectDir);
+    const projectRoot = await fs.realpath(selectedWorkspace ?? projectDir);
     const inputRoot = await fs.realpath(destination);
     const inputEntry = await fs.lstat(destination);
     if (!inputEntry.isDirectory() || inputEntry.isSymbolicLink() || !this.isDescendant(projectRoot, inputRoot)) {

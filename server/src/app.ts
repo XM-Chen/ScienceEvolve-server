@@ -84,6 +84,7 @@ import { GitHubRepositoryManager, registerGitHubRepositoryManagementRoutes } fro
 import { GitHubAuthorizationError } from "./collaboration-git/errors.js";
 import { ProjectInputUploads, ProjectInputUploadError } from "./project-input-uploads.js";
 import { ProjectFolderStore, registerProjectFolderRoutes } from "./project-folders.js";
+import { WorkspaceBindingError } from "./workspace-bindings.js";
 
 const deployedBuildInfo = await readFile(new URL("../build-info.json", import.meta.url), "utf8")
   .then(text => JSON.parse(text) as { buildId: string; builtAt: string }).catch(() => undefined);
@@ -1071,7 +1072,8 @@ export function createApp(dependencies: AppDependencies) {
       sealed = !!uploadId;
       const project = await orchestrator.createProject(request.body, uploadId ? {
         files: files ?? [],
-        install: (projectId) => inputUploads.install(uploadId, storage.projectDir(projectId))
+        install: async (projectId) => inputUploads.install(uploadId, storage.projectDir(projectId),
+          await storage.roleWorkspace(projectId, "main", "inv_install_inputs"))
       } : undefined);
       const conversationId = typeof request.body.explainerConversationId === "string" ? request.body.explainerConversationId
         : typeof request.body.sourceSavedTaskId === "string" ? await projectExplainer?.assistant?.resolve(request.body.sourceSavedTaskId) : undefined;
@@ -1086,6 +1088,14 @@ export function createApp(dependencies: AppDependencies) {
       if (sealed) inputUploads.unseal(uploadId);
       next(error);
     }
+  });
+
+  app.post("/api/workspaces/validate", async (request, response, next) => {
+    try {
+      const input = z.object({ path: z.string().trim().min(1).max(4096) }).strict().parse(request.body);
+      const binding = await storage.inspectWorkspace(input.path);
+      response.json({ path: binding.path, valid: true, message: "目录存在且可读写；保存课题仅保存配置，主动启动时才正式绑定" });
+    } catch (error) { next(error); }
   });
 
   app.post("/api/projects/:projectId/search-tree", async (request, response, next) => {
@@ -2263,6 +2273,10 @@ export function createApp(dependencies: AppDependencies) {
       return;
     }
     if (error instanceof ProjectInputUploadError) {
+      response.status(error.status).json({ error: error.message });
+      return;
+    }
+    if (error instanceof WorkspaceBindingError) {
       response.status(error.status).json({ error: error.message });
       return;
     }

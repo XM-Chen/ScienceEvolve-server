@@ -339,7 +339,11 @@ Workflow 还可定义 Project Skill 和 Project stdio MCP。Project Skill 是包
 
 ### Workspace 与成果完整性
 
-未开启 Git 协作的项目中，Main 和所有 Worker 使用 `${SCIENCEEVOLVE_DATA_DIR}/projects/<project-id>/workspaces/` 下的共享业务 Workspace 与 `Memory.md`；Session、日志和调用级临时目录仍保持隔离。Git 协作项目按组内 Workflow 使用隔离 worktree、发布与集成流程，规则见 [协作组内 Workflow（v3）](scienceevolve-collaboration/scoped-workflow-v3.md)。旧项目的 `<agent>/shared/` 文件原地保留，不自动合并或覆盖。
+新建项目的“已有工作目录（可选）”可以绑定服务所在电脑上的实际文件夹。“检查目录”只核对目录是否存在和可读写；“保存课题”保存路径配置，不会启动研究。用户主动启动时，Server 将目录的规范路径和文件系统身份登记到项目，Agent、共享 Memory 和成果发布共同使用该目录。留空仍由应用创建工作区。已有目录模式暂不与 Git 协作同时启用。
+
+绑定后的目录被移动、替换或不可访问时会明确报错，不会静默改用默认目录。不同项目不能同时绑定相同或互为父子的工作目录。删除应用项目只删除管理数据并解除登记，保留用户的外部目录和研究文件。工作目录设置是用户与宿主拥有的配置，不可通过 Agent 的 Workflow 提案改变。
+
+未绑定已有目录且未开启 Git 协作的项目中，Main 和所有 Worker 使用 `${SCIENCEEVOLVE_DATA_DIR}/projects/<project-id>/workspaces/` 下的共享业务 Workspace 与 `Memory.md`；绑定已有目录时改用所选目录。Session、日志和调用级临时目录仍保持隔离。Git 协作项目按组内 Workflow 使用隔离 worktree、发布与集成流程，规则见 [协作组内 Workflow（v3）](scienceevolve-collaboration/scoped-workflow-v3.md)。旧项目的 `<agent>/shared/` 文件原地保留，不自动合并或覆盖。
 
 开启新课题时可选择文件、图片或整个文件夹，也可从本机点击“打开目录”，通过 Windows 文件资源管理器、macOS Finder 或 Linux 系统文件管理器（`xdg-open`）直接向临时 `user_inputs/` 添加文件。服务需运行在图形桌面会话中；打开失败时仍可通过选择文件或文件夹上传。下方默认显示最多五个文件或顶层文件夹，可展开查看其余条目；上传完成或从文件管理器返回页面后会自动更新。文件名按服务所在系统的规则校验，重复上传和删除按实际文件系统的大小写规则处理。创建时文件进入共享 Workspace 的 `user_inputs/`，之后也可继续向该目录添加。所有 Agent 均可读取，原件作为补充资料而非自动发布的成果；单文件上限 50 MiB，单次最多 1000 个文件、总计 200 MiB。
 

@@ -32,6 +32,7 @@ import {
   ApiError,
   createSavedResearchTask,
   createProject,
+  validateProjectWorkspace,
   createProjectInputUpload,
   uploadProjectInputFile,
   listProjectInputFiles,
@@ -685,6 +686,10 @@ export function NewProjectPage({
   const [cachedTask] = useState(() => savedTaskId ? readCachedResource<SavedResearchTask>(`saved-task:${savedTaskId}`) : undefined);
   const [title, setTitle] = useState(cachedTask?.title ?? "");
   const [requirement, setRequirement] = useState(cachedTask?.requirement ?? "");
+  const [workspacePath, setWorkspacePath] = useState(cachedTask?.workspacePath ?? "");
+  const [workspaceCheck, setWorkspaceCheck] = useState("");
+  const [workspaceError, setWorkspaceError] = useState("");
+  const [workspaceChecking, setWorkspaceChecking] = useState(false);
   const [inputDescription, setInputDescription] = useState("");
   const [searchTree, setSearchTree] = useState<SearchTreeConfig | undefined>(cachedTask?.searchTree);
   const [inputFiles, setInputFiles] = useState<InputFileMeta[]>([]);
@@ -776,7 +781,7 @@ export function NewProjectPage({
   const [newConfigBlank, setNewConfigBlank] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const wasInactiveRef = useRef(false);
-  const loadingDraft = { title, requirement, searchTree, agents, orchestration, skillDefinitions, mcpDefinitions,
+  const loadingDraft = { title, requirement, workspacePath, searchTree, agents, orchestration, skillDefinitions, mcpDefinitions,
     git: { enabled: gitEnabled, accountId: githubAccountId, repositoryName: gitRepositoryName, repositoryVisibility: gitRepositoryVisibility } };
   const latestLoadingDraft = useRef(loadingDraft); latestLoadingDraft.current = loadingDraft;
 
@@ -798,6 +803,7 @@ export function NewProjectPage({
           setSaveTaskNotice("已保留你在后台刷新期间的草稿编辑。");
         if (unchanged("title")) { setTitle(task.title); setWorkflowName(task.title); }
         if (unchanged("requirement")) setRequirement(task.requirement);
+        if (unchanged("workspacePath")) setWorkspacePath(task.workspacePath ?? "");
         if (unchanged("searchTree")) setSearchTree(task.searchTree);
         // The graph and its Agent/resource references form one configuration.
         // Unrelated title/account edits must not prevent its revalidation.
@@ -1124,7 +1130,7 @@ export function NewProjectPage({
   const repositoryNameError = gitEnabled ? gitRepositoryNameError(gitRepositoryName) : "";
   const repositoryConfigurationReady = !gitEnabled || !repositoryNameError;
   const canSaveDraft = titleValid && requirementValid && agentsValid &&
-    repositoryConfigurationReady && !projectReferenceError;
+    repositoryConfigurationReady && !projectReferenceError && !(workspacePath.trim() && gitEnabled);
   const runtimeCatalogNotice = runtimeCatalogState === "ready"
     ? catalogDefaultHarnessId(harnesses, defaultHarnessId)
       ? gateways.length > 0
@@ -1137,6 +1143,7 @@ export function NewProjectPage({
         ? `运行目录尚未就绪：${runtimeCatalogError}`
         : `运行目录加载失败：${runtimeCatalogError}`;
   const startValidationErrors = [...new Set([
+    workspacePath.trim() && gitEnabled && "绑定已有工作目录时请关闭 Git 协作",
     savedTaskLoadError && `已保存任务加载失败：${savedTaskLoadError}`,
     !titleValid && "请输入项目名称",
     !requirementValid && "课题方向与具体要求至少需要 10 个字符",
@@ -1437,6 +1444,7 @@ export function NewProjectPage({
         ...(editingTask?.id ? { sourceSavedTaskId: editingTask.id } : {}),
         title: title.trim(),
         requirement: requirement.trim(),
+        workspacePath: workspacePath.trim(),
         inputUploadId,
         inputDescription: inputDescription.trim(),
         agents,
@@ -1575,6 +1583,7 @@ export function NewProjectPage({
       ...(searchTree ? { searchTree } : {}),
       title: title.trim(),
       requirement: requirement.trim(),
+      workspacePath: workspacePath.trim(),
       agents: cloneAgentsConfig(agents),
       orchestration: cloneAgentOrchestration(orchestration),
       git: {
@@ -1802,6 +1811,7 @@ export function NewProjectPage({
       if (taskId) setTaskDeleted(false);
       if (taskId) setEditingTask({ schemaVersion: 2, kind: "scienceevolve-saved-research-task", id: taskId,
         createdAt: editingTask?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString(), ...draft,
+        workspacePath: workspacePath.trim() || undefined,
         orchestration: draft.orchestration ?? orchestration });
       else setEditingTask(undefined);
     }
@@ -1894,6 +1904,29 @@ export function NewProjectPage({
                   <small className="field-error">请输入项目名称</small>
                 )}
               </label>
+              <div className="field field-large" aria-label="项目工作目录设置">
+                <label htmlFor="project-workspace-path">已有工作目录（可选）</label>
+                <input id="project-workspace-path" aria-label="已有工作目录" value={workspacePath}
+                  placeholder="留空由应用创建；也可填写已有目录的完整路径"
+                  onChange={event => { setWorkspacePath(event.target.value); setWorkspaceCheck(""); setWorkspaceError(""); setTouched(true); }} />
+                <small>填写服务所在电脑上的目录。创建项目后 Agent 在该目录工作，成果沿用原有登记与校验机制。保存课题仅保存配置，不会启动研究。</small>
+                <div><button type="button" className="button button-secondary" disabled={!workspacePath.trim() || workspaceChecking} onClick={async () => {
+                  const requested = workspacePath.trim();
+                  setWorkspaceChecking(true); setWorkspaceCheck(""); setWorkspaceError("");
+                  try {
+                    const checked = await validateProjectWorkspace(requested);
+                    if (latestLoadingDraft.current.workspacePath.trim() === requested) {
+                      setWorkspacePath(checked.path); setWorkspaceCheck(checked.message);
+                    }
+                  } catch (reason) {
+                    if (latestLoadingDraft.current.workspacePath.trim() === requested)
+                      setWorkspaceError(reason instanceof Error ? reason.message : "目录检查失败");
+                  } finally { setWorkspaceChecking(false); }
+                }}>{workspaceChecking ? "正在检查…" : "检查目录"}</button></div>
+                {workspaceCheck && <small role="status">{workspaceCheck}</small>}
+                {workspaceError && <small className="field-error" role="alert">{workspaceError}</small>}
+                {workspacePath.trim() && gitEnabled && <small className="field-error" role="alert">绑定已有工作目录时请关闭 Git 协作。</small>}
+              </div>
               <label className="field field-large">
                 <span>课题方向与具体要求</span>
                 <textarea

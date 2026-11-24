@@ -21,6 +21,7 @@ import {
   validateProjectMcpReferences
 } from "./project-mcp.js";
 import { newId, nowIso } from "./utils.js";
+import { inspectWorkspacePath } from "./workspace-bindings.js";
 
 interface SavedResearchTaskFile {
   schemaVersion: 2;
@@ -63,6 +64,7 @@ export class SavedResearchTaskStore {
   async create(input: SavedResearchTaskInput, taskId?: string): Promise<SavedResearchTask> {
     return this.serialize(async () => {
       const parsed = savedResearchTaskInputSchema.parse(input);
+      const workspacePath = await this.workspacePath(parsed);
       const tasks = await this.readPersisted();
       if (taskId && !/^task_[a-f0-9]{32}$/.test(taskId)) throw new Error("Invalid saved research task id");
       if (taskId && Object.values((await this.readDocument()).deletionReceipts ?? {}).some(receipt => receipt.tasks.some(task => task.id === taskId)))
@@ -85,6 +87,7 @@ export class SavedResearchTaskStore {
         id: taskId ?? newId("task"),
         title: parsed.title,
         requirement: parsed.requirement,
+        ...(workspacePath ? { workspacePath } : {}),
         createdAt: timestamp,
         updatedAt: timestamp,
         agents,
@@ -116,6 +119,11 @@ export class SavedResearchTaskStore {
       const index = tasks.findIndex((task) => task.id === taskId);
       if (index < 0) return undefined;
       const current = tasks[index];
+      // Older clients and the assistant may edit task content without owning
+      // the user's directory selection. Only an explicitly empty path clears it.
+      const workspacePath = Object.prototype.hasOwnProperty.call(parsed, "workspacePath")
+        ? await this.workspacePath(parsed) : current.workspacePath;
+      if (workspacePath && parsed.git.enabled) throw new Error("绑定已有工作目录时请关闭 Git 协作");
       if (expectedUpdatedAt !== undefined && current.updatedAt !== expectedUpdatedAt) {
         throw Object.assign(new Error("已保存草稿已有新的修改，请重新读取后再编辑，避免覆盖其他窗口的内容。"), { status: 409 });
       }
@@ -131,6 +139,7 @@ export class SavedResearchTaskStore {
         ...current,
         title: parsed.title,
         requirement: parsed.requirement,
+        workspacePath,
         updatedAt: new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString(),
         agents,
         orchestration,
@@ -201,6 +210,12 @@ export class SavedResearchTaskStore {
 
   private filePath(): string {
     return path.join(this.root, "saved-research-tasks.json");
+  }
+
+  private async workspacePath(input: SavedResearchTaskInput): Promise<string | undefined> {
+    if (!input.workspacePath) return undefined;
+    if (input.git?.enabled) throw new Error("绑定已有工作目录时请关闭 Git 协作");
+    return (await inspectWorkspacePath(input.workspacePath, this.root)).path;
   }
 
   private async readPersisted(): Promise<SavedResearchTask[]> {
@@ -285,6 +300,7 @@ function parsePersistedTask(value: unknown): SavedResearchTask {
     searchTree: value.searchTree,
     title: value.title,
     requirement: value.requirement,
+    workspacePath: value.workspacePath,
     agents: Object.fromEntries(Object.entries(value.agents).map(([name, config]) =>
       [name, isRecord(config) ? withoutLegacyAgentProxy(config) : config])),
     orchestration: value.orchestration,
@@ -305,6 +321,7 @@ function parsePersistedTask(value: unknown): SavedResearchTask {
     ...(parsed.searchTree ? { searchTree: parsed.searchTree } : {}),
     title: parsed.title,
     requirement: parsed.requirement,
+    ...(parsed.workspacePath ? { workspacePath: parsed.workspacePath } : {}),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     agents,

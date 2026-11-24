@@ -1019,6 +1019,12 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   return normalizeProject(unwrapProject(result));
 }
 
+export async function validateProjectWorkspace(path: string): Promise<{ path: string; valid: boolean; message: string }> {
+  return await request("/api/workspaces/validate", {
+    method: "POST", body: JSON.stringify({ path })
+  }) as { path: string; valid: boolean; message: string };
+}
+
 export async function createProjectInputUpload(signal?: AbortSignal): Promise<string> {
   const result = await request("/api/project-input-uploads", { method: "POST", signal }) as { uploadId: string };
   return result.uploadId;

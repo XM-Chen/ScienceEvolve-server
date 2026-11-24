@@ -552,6 +552,7 @@ export interface AgentConfigPreset {
 }
 
 export interface SavedResearchTask {
+  workspacePath?: string;
   searchTree?: import("./search-tree.js").SearchTreeConfig;
   schemaVersion: 2;
   kind: "scienceevolve-saved-research-task";
@@ -1217,6 +1218,8 @@ export interface GitRetrySchedulingTimeline {
 }
 
 export interface ProjectState {
+  /** Explicit user-selected workspace; server registrations own its identity. */
+  workspacePath?: string;
   /** Absence disables search-tree storage, tools and context. Fixed at creation. */
   searchTree?: import("./search-tree.js").SearchTreeConfig;
   /** Set by new-project creation only; opening old projects never opts them in. */

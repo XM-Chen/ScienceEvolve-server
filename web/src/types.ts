@@ -701,6 +701,7 @@ export interface AgentConfigPreset {
 }
 
 export interface SavedResearchTask {
+  workspacePath?: string;
   searchTree?: SearchTreeConfig;
   schemaVersion: 2;
   kind: "scienceevolve-saved-research-task";
@@ -1309,6 +1310,7 @@ export interface SearchTreeConfig {
 }
 
 export interface Project {
+  workspacePath?: string;
   searchTree?: SearchTreeConfig;
   collaboration?: { stateRevision: number; businessState?: Array<{
     object: { kind: string; id: string }; extensions: Record<string, unknown>; sequence: number; updatedAt: string
@@ -1409,6 +1411,7 @@ export interface Project {
 }
 
 export interface CreateProjectInput {
+  workspacePath?: string;
   searchTree?: SearchTreeConfig;
   /** Carries the same Explainer conversation into a user-started project. */
   explainerConversationId?: string;

@@ -1002,6 +1002,8 @@ export class Orchestrator {
     const host = hostInput && "files" in hostInput ? { initialInputs: hostInput } : hostInput;
     const creationStartedAt = performance.now();
     const parsed = createProjectSchema.parse(input);
+    if (parsed.workspacePath && parsed.git.enabled) throw new Error("绑定已有工作目录时请关闭 Git 协作");
+    if (parsed.workspacePath) parsed.workspacePath = (await this.storage.inspectWorkspace(parsed.workspacePath)).path;
     if (Boolean(parsed.inputUploadId) !== Boolean(host?.initialInputs)) {
       throw new Error("上传会话与课题输入不匹配");
     }
@@ -1079,6 +1081,7 @@ export class Orchestrator {
       mcpDefinitions,
       title: parsed.title,
       requirement: parsed.requirement,
+      ...(parsed.workspacePath ? { workspacePath: parsed.workspacePath } : {}),
       inputFiles: host?.initialInputs?.files ?? [],
       inputDescription: parsed.inputDescription ?? "",
       status: "queued",
@@ -1157,18 +1160,27 @@ export class Orchestrator {
     // Bind host-owned initial source before any durable project/provider/Agent work.
     await host?.beforePersist?.({ projectId, gitEnabled: parsed.git.enabled });
     await this.hostLifecycle?.beforePersist?.({ projectId, gitEnabled: parsed.git.enabled });
+    if (parsed.workspacePath) await this.storage.bindWorkspace(projectId, parsed.workspacePath);
     // Bind the selected workspace first, then install original inputs before
     // persistence/queueing so neither ordinary nor Git Agents race the copy.
-    await host?.initialInputs?.install(projectId);
-    if (state.searchTree) {
-      for (const file of state.searchTree.root.inputFiles ?? []) {
-        if (!state.inputFiles?.includes(file)) throw new Error(`Search tree initial input is not an uploaded file: ${file}`);
+    try {
+      await host?.initialInputs?.install(projectId);
+      if (state.searchTree) {
+        for (const file of state.searchTree.root.inputFiles ?? []) {
+          if (!state.inputFiles?.includes(file)) throw new Error(`Search tree initial input is not an uploaded file: ${file}`);
+        }
+        const workspace = await this.storage.roleWorkspace(state.id, "main", "inv_search_tree_initial");
+        await new SearchTreeStore(state.id, this.storage.projectDir(state.id), state.git?.enabled === true)
+          .initialize(state.searchTree, path.join(workspace, "user_inputs"));
       }
-      const workspace = await this.storage.roleWorkspace(state.id, "main", "inv_search_tree_initial");
-      await new SearchTreeStore(state.id, this.storage.projectDir(state.id), state.git?.enabled === true)
-        .initialize(state.searchTree, path.join(workspace, "user_inputs"));
+      await this.storage.createProject(state);
+    } catch (error) {
+      if (parsed.workspacePath) {
+        const persisted = await fs.stat(path.join(this.storage.projectDir(projectId), "state.json")).then(() => true, () => false);
+        if (!persisted) await this.storage.releaseWorkspace(projectId);
+      }
+      throw error;
     }
-    await this.storage.createProject(state);
     const runtime: RuntimeProject = {
       state,
       eventQueue: Promise.resolve(),

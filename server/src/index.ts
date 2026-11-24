@@ -10,6 +10,7 @@ import {
 } from "./config.js";
 import { EventHub } from "./event-hub.js";
 import { ProjectStorage } from "./storage.js";
+import { WorkspaceBindings } from "./workspace-bindings.js";
 import { SkillCatalog } from "./skill-catalog.js";
 import { HarnessRuntimeFacade } from "./harness-runtime/runtime.js";
 import { createProductionHarnessRuntimeResidentAdapter } from "./harness-runtime/resident-runtime-adapter.js";
@@ -46,8 +47,9 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const inspireBin = await resolveExecutable(config.inspireBin);
   const boundProjectId = process.env.SCIENCEEVOLVE_BOUND_SDK_PROJECT;
+  const workspaceBindings = new WorkspaceBindings(config.dataDir);
   const resolveProjectWorkspace = async (id: string): Promise<string | undefined> => {
-    if (!boundProjectId || id !== boundProjectId) return undefined;
+    if (!boundProjectId || id !== boundProjectId) return workspaceBindings.resolve(id);
     if (!/^prj_[a-f0-9]{32}$/.test(id)) throw new Error("Invalid bound SDK project");
     const registry = JSON.parse(await fs.readFile(path.join(config.dataDir, "workspace-bindings.json"), "utf8"));
     const marker = JSON.parse(await fs.readFile(path.join(config.dataDir, "projects", id, ".sdk-workspace.json"), "utf8"));
@@ -81,7 +83,7 @@ async function main(): Promise<void> {
   if (systemGateway) await gatewayStore.seedBuiltin(systemGateway);
   const skills = new SkillCatalog(config.skillRoots, config.userSkillRoot);
   const explainerSandbox = await resolveExplainerSandboxConfiguration();
-  const siiExperiments = new SiiExperimentService({ projectsRoot: storage.projectsDir(), inspireBin,
+  const siiExperiments = new SiiExperimentService({ projectsRoot: storage.projectsDir(), inspireBin, resolveProjectWorkspace,
     configPath: config.inspireConfigPath, noProxy: config.inspireNoProxy, workspaceRoot: config.inspireWorkspaceRoot,
     knowledgeRoot: path.join(config.skillRoots[0]!, "general", "inspire"),
     refreshMs: Math.max(1000, Number(process.env.SCIENCEEVOLVE_SII_REFRESH_MS) || 30_000) });

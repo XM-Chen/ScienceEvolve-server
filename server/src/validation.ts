@@ -696,6 +696,7 @@ export function normalizeNewGitOrchestration(value: unknown): NormalizedAgentOrc
 }
 
 export const createProjectSchema = z.object({
+  workspacePath: z.string().trim().max(4096).optional(),
   searchTree: searchTreeConfigSchema.optional(),
   title: z.string().trim().min(1).max(160),
   requirement: z.string().trim().min(1).max(100_000),
@@ -717,6 +718,7 @@ export const modelSelectionSchema = z.object({
 }).strict();
 export const updateAgentModelsSchema = modelSelectionSchema;
 export const savedResearchTaskInputSchema = z.object({
+  workspacePath: z.string().trim().max(4096).optional(),
   searchTree: searchTreeConfigSchema.optional(),
   title: z.string().trim().min(1).max(160),
   requirement: z.string().trim().min(1).max(100_000),

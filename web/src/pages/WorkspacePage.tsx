@@ -3792,6 +3792,7 @@ export function WorkspacePage({
             <i />
             <div className="workspace-title">
               <h1>{project.title}</h1>
+              {project.workspacePath && <small title={project.workspacePath}>工作目录：{project.workspacePath}</small>}
               <span>
                 <StatusBadge status={project.status} phase={project.phase} runtime={project.runtime} />
                 <small title="项目资料和运行统计的最近更新时间">记录更新于 {formatRelativeTime(project.updatedAt)}</small>
