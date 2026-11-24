@@ -947,8 +947,12 @@ function tomlMcpServersConfig(
       const approval = server.name === "scienceevolve-sii" && server.url === trustedSiiUrl
         || server.name !== "scienceevolve-sii"
         ? ', default_tools_approval_mode = "approve"' : "";
-      const indexOutput = codexIndexToolOutputConfig(isExplainerMcp(server) ? ["get_context"] : []);
-      return `${JSON.stringify(server.name)} = { url = ${JSON.stringify(server.url)}${auth}${approval}${indexOutput} }`;
+      const explainer = isExplainerMcp(server);
+      const indexOutput = codexIndexToolOutputConfig(explainer ? ["get_context"] : []);
+      // A gateway may support function tools without Codex's tool discovery.
+      // The Explainer's small MCP catalog must be visible on the first request.
+      const exposure = explainer ? ', required = true, omit_tools_from = ["deferred", "code_mode"]' : "";
+      return `${JSON.stringify(server.name)} = { url = ${JSON.stringify(server.url)}${auth}${approval}${indexOutput}${exposure} }`;
     }
   );
   if (control) {
