@@ -231,7 +231,7 @@ export class CodexRunner {
       : undefined;
     const configuredMcpServers = explainer ? agentConfig.mcpServers.filter(isExplainerMcp) : agentConfig.mcpServers;
     let gatewayModelCatalog: string | undefined;
-    if (agentConfig.gatewaySnapshot && !explainer) {
+    if (agentConfig.gatewaySnapshot && (!explainer || configuredMcpServers.length > 0)) {
       try {
         gatewayModelCatalog = await prepareCodexGatewayModelCatalog(
           harnessExecutable, agentConfig.model, request.runtimePath
