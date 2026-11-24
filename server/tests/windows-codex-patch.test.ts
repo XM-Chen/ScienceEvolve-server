@@ -18,9 +18,9 @@ afterEach(async () => {
 });
 
 describe.runIf(process.platform === "win32")("Windows native Codex patch launcher", () => {
-  it("preserves multiline UTF-8 argv and stdin, forwards diagnostics and native exit status", async () => {
+  it.each(["arg0", "arg0-windows"])("preserves patch arguments and native diagnostics in %s", async aliasRoot => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "openfars-windows-patch-")); roots.push(root);
-    const target = path.join(root, "home", "tmp", "arg0", "codex-generated");
+    const target = path.join(root, "home", "tmp", aliasRoot, "codex-generated");
     const native = path.join(root, "native codex.exe");
     const receiver = path.join(root, "receiver.cs");
     await fs.mkdir(target, { recursive: true });
@@ -35,7 +35,8 @@ public static class Receiver { public static int Main(string[] args) {
 }}`);
     const compiler = path.join(process.env.SystemRoot ?? "C:\\Windows", "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe");
     await execute(compiler, ["/nologo", "/target:exe", `/out:${native}`, receiver], { windowsHide: true });
-    await fs.writeFile(path.join(target, "apply_patch.bat"), `@echo off\r\n"${native}" --codex-run-as-apply-patch %*\r\n`);
+    const batchExecutable = aliasRoot === "arg0-windows" ? `%~dp0${path.win32.relative(target, native)}` : native;
+    await fs.writeFile(path.join(target, "apply_patch.bat"), `@echo off\r\n"${batchExecutable}" --codex-run-as-apply-patch %*\r\n`);
     await installWindowsCodexPatch(path.join(root, "home"), native, path.join(root, "runtime"));
     const launcher = path.join(target, "apply_patch.exe");
     const patch = '*** Begin Patch\n*** Add File: 中文.txt\n+"引号" C:\\path\\file $value %PATH%\n*** End Patch';

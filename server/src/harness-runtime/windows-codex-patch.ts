@@ -18,25 +18,33 @@ export async function installWindowsCodexPatch(home: string, codexExecutable: st
   if (createHash("sha256").update(bytes).digest("hex") !== SOURCE_SHA256) {
     throw new Error("Windows patch launcher does not match its pinned build");
   }
-  const arg0 = path.join(home, "tmp", "arg0");
+  const aliasRoots = ["arg0-windows", "arg0"].map(name => path.join(home, "tmp", name));
+  const expectedExecutable = path.win32.normalize(codexExecutable).toLowerCase();
   const deadline = Date.now() + 3000;
   let targets: string[] = [];
   while (Date.now() < deadline) {
-    const directories = await fs.readdir(arg0).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return [];
-      throw error;
-    });
     targets = [];
-    for (const directory of directories) {
-      const target = path.join(arg0, directory);
-      const info = await fs.lstat(target);
-      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Codex arg0 directory is not a real directory");
-      const batch = await fs.readFile(path.join(target, "apply_patch.bat"), "utf8").catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return "";
+    for (const root of aliasRoots) {
+      const directories = await fs.readdir(root).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return [];
         throw error;
       });
-      if (batch.includes("--codex-run-as-apply-patch") &&
-        batch.toLowerCase().includes(codexExecutable.replaceAll("/", "\\").toLowerCase())) targets.push(target);
+      for (const directory of directories) {
+        const target = path.join(root, directory);
+        const info = await fs.lstat(target);
+        if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Codex arg0 directory is not a real directory");
+        const batch = await fs.readFile(path.join(target, "apply_patch.bat"), "utf8").catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return "";
+          throw error;
+        });
+        const executable = /^"([^"\r\n]+)"[ \t]+--codex-run-as-apply-patch[ \t]+%\*[ \t]*\r?$/m.exec(batch)?.[1];
+        if (!executable) continue;
+        // Newer Codex aliases use the batch directory on the same volume.
+        const resolved = executable.toLowerCase().startsWith("%~dp0")
+          ? path.win32.resolve(target, executable.slice(5))
+          : path.win32.normalize(executable);
+        if (resolved.toLowerCase() === expectedExecutable) targets.push(target);
+      }
     }
     if (targets.length) break;
     await new Promise(resolve => setTimeout(resolve, 10));
