@@ -2581,10 +2581,15 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
   }
 
   private async authorizeScopedManagementResume(state: ProjectState, automaticRecovery = false): Promise<void> {
-    const projection = await this.database().projectState(state.id);
+    let projection = await this.database().projectState(state.id);
     const node = projection.nodeRuns.find(node => node.id === projection.activeNodeRunId);
     if (!node || node.node.kind !== "collaboration" || !projection.scopedGroupRuns?.some(group =>
       !group.parentGroupRunId && group.activationRequestId === node.activationRequestId)) return;
+    if (this.#residentLauncher?.stopScopedForRecovery && !this.#runs.has(state.id) &&
+      ![...this.#residents.values()].some(entry => entry.projectId === state.id)) {
+      await (await this.scopedRuntime(state, new AbortController().signal)).reconcileResidents();
+      projection = await this.database().projectState(state.id);
+    }
     await this.database().resumeScopedManagementRepairs({ projectId: state.id, nodeRunId: node.id,
       expectedRevision: projection.stateRevision, automaticRecovery });
     await this.publishProjection(state, (await this.database().projectState(state.id)));

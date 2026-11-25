@@ -4353,6 +4353,11 @@ describe("scoped project native production composition", () => {
     expect((await advanceUntilTerminal(f)).status).toBe("completed");
     const manager = f.opened.filter(input => input.controlScope?.role === "scoped-main").at(-1)!;
     expect(await readFile(manager.request.inboxPath, "utf8")).toContain("Latest user instruction: retry in the original session");
+    const retried = f.opened.find(input => input.controlScope?.role === "scoped-agent" &&
+      input.request.agent === "idea" && input.request.executionContext?.role === "delivery" &&
+      input.request.executionContext.ownershipEpoch === 2)!;
+    expect(retried.initialTask).toContain("Latest user instruction: retry in the original session");
+    expect(retried.initialTask).not.toContain("Earlier user instruction");
     expect(f.state.userIntervention).toBeUndefined();
     expect(f.database.eventByRequestId(id, `scoped-user-consumed:${latest.id}`)).toBeDefined();
     expect(f.database.eventByRequestId(id, `scoped-user-consumed:${first.id}`)).toBeUndefined();

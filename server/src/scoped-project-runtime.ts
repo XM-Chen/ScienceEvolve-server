@@ -583,6 +583,14 @@ export class ScopedProjectRuntime {
     const messages: WorkflowDirectMessage[] = [];
     if (plannedTask) messages.push({ sender: input.groupRun.leaderAgentId, body: plannedTask.assignment });
     messages.push(...scopedPredecessorMessages(projection, input.arrival, input.workflow.routes));
+    const retry = input.execution.ownershipEpoch > 1
+      ? await d.database.eventByRequestId(d.state.id, `scoped-retry:${input.execution.id}:${input.execution.ownershipEpoch}`)
+      : undefined;
+    const retryInstructions = retry?.payload.instructions as WorkflowDirectMessage[] | undefined;
+    if (retryInstructions?.length) {
+      messages.push({ sender: "OpenFARS", body: "The following accepted retry instructions govern this attempt and supersede conflicting earlier assignments." });
+      messages.push(...retryInstructions);
+    }
     if (input.reportRepair) messages.push({ sender: "OpenFARS", body:
       `Continue the original task. Missing formal mechanism facts: ${input.reportRepair.missing.join(", ")}. Preserve accepted reports and receipts.` });
     if (input.missingReportRepair) messages.push({ sender: "OpenFARS", body:
@@ -1340,6 +1348,14 @@ export class ScopedProjectRuntime {
       if (retainedActions.some(envelope => envelope.action.tool === "apply_workflow")) await this.discoverWorktreeClosings();
       d.assertManagementActive?.();
       const workflowAdjustments: WorkflowAdjustmentPublication[] = [];
+      const retryUserResponse = globalMain && d.state.userIntervention?.status === "answered"
+        ? d.state.userIntervention.response : undefined;
+      if (retryUserResponse?.trim() && retainedActions.some(({ action }) =>
+        action.tool === "coordinate_group_task" && action.operation === "retry")) {
+        await d.database.appendEvent({ projectId: d.state.id, agentId, invocationId,
+          requestId: `scoped-retry-user-response:${invocationId}`, type: "scoped.retry.user_response.bound",
+          payload: { response: retryUserResponse } });
+      }
       for (const envelope of retainedActions) {
         if (envelope.action.tool !== "finish_task") {
           d.assertManagementActive?.();
@@ -1514,6 +1530,16 @@ export class ScopedProjectRuntime {
           `scoped-recovery-application-failed:${receipt.envelope.invocationId}:${receipt.envelope.callId}`))) continue;
         const manager = (await d.database.scopedLeaderTurns(d.state.id)).find(turn => turn.invocationId === receipt.envelope.invocationId);
         if (manager?.status !== "released") continue;
+        const retryInstructions: WorkflowDirectMessage[] = [];
+        if (action.operation === "retry") {
+          if (action.rationale?.trim()) retryInstructions.push({ sender: receipt.envelope.agent, body: action.rationale });
+          const userResponse = receipt.globalMain
+            ? (await d.database.eventByRequestId(d.state.id, `scoped-retry-user-response:${manager.invocationId}`))?.payload.response
+            : undefined;
+          if (typeof userResponse === "string" && userResponse.trim()) {
+            retryInstructions.push({ sender: "user", body: userResponse });
+          }
+        }
         try {
           if (receipt.incidentId) {
             const issue = (await d.database.scopedGroupIssues(d.state.id)).find((entry) => entry.id === receipt.incidentId);
@@ -1528,7 +1554,8 @@ export class ScopedProjectRuntime {
                 if (!execution.executionBranch) {
               if (action.operation === "skip") await d.database.applyScopedMainSkip(d.state.id, execution.id, execution.ownershipEpoch, null);
               else await d.database.retryScopedAgentArrival({ projectId: d.state.id, executionId: execution.id,
-                arrivalRequestId: execution.arrivalRequestId, failedOwnershipEpoch: receipt.failedOwnershipEpoch });
+                arrivalRequestId: execution.arrivalRequestId, failedOwnershipEpoch: receipt.failedOwnershipEpoch,
+                instructions: retryInstructions });
               continue;
             }
             const pull = await this.observeScopedRecoveryPull(execution);
@@ -1568,6 +1595,13 @@ export class ScopedProjectRuntime {
             (await d.database.eventByRequestId(d.state.id, `scoped-missing-report-repair:${receipt.envelope.invocationId}:${receipt.envelope.callId}`))) continue;
           const execution = await d.database.scopedExecution(d.state.id, receipt.executionId);
           if (execution?.status === "failed" && execution.ownershipEpoch === receipt.failedOwnershipEpoch) {
+            if (!d.state.git?.enabled) {
+              if (action.operation === "skip") await d.database.applyScopedMainSkip(d.state.id, execution.id, execution.ownershipEpoch, null);
+              else await d.database.retryScopedAgentArrival({ projectId: d.state.id, executionId: execution.id,
+                arrivalRequestId: execution.arrivalRequestId, failedOwnershipEpoch: receipt.failedOwnershipEpoch,
+                instructions: retryInstructions });
+              continue;
+            }
             const pull = await this.observeScopedRecoveryPull(execution);
             if (action.operation === "skip") {
               await d.database.applyScopedMainSkip(d.state.id, execution.id, execution.ownershipEpoch, pull ?? null);
@@ -1587,7 +1621,8 @@ export class ScopedProjectRuntime {
               } else await d.database.resumeScopedMergedDelivery(d.state.id, execution.id, execution.ownershipEpoch,
                 receipt.envelope);
             } else await d.database.retryScopedAgentArrival({ projectId: d.state.id, executionId: execution.id,
-              arrivalRequestId: execution.arrivalRequestId, failedOwnershipEpoch: receipt.failedOwnershipEpoch });
+              arrivalRequestId: execution.arrivalRequestId, failedOwnershipEpoch: receipt.failedOwnershipEpoch,
+              instructions: retryInstructions });
           }
         } catch (error) {
           if (d.signal.aborted || (await d.database.projectCancellationIntent(d.state.id)) || error instanceof ScopedManagementDeferredError ||

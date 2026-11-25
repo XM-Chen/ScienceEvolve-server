@@ -826,6 +826,7 @@ export interface RetryScopedAgentArrivalInput {
   arrivalRequestId: string;
   executionId: string;
   failedOwnershipEpoch: number;
+  instructions?: { sender: string; body: string }[];
   expectedRevision?: number;
 }
 

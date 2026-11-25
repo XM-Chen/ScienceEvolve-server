@@ -7584,7 +7584,8 @@ export class CollaborationStateDatabase {
       if (existing) {
         const recorded = parseJson<Record<string, unknown>>(existing.payload_json, {});
         if (recorded.arrivalRequestId !== arrivalRequestId || recorded.executionId !== executionId ||
-          recorded.failedOwnershipEpoch !== failedEpoch || Number(execution.ownership_epoch) !== nextEpoch) {
+          recorded.failedOwnershipEpoch !== failedEpoch || Number(execution.ownership_epoch) !== nextEpoch ||
+          !isDeepStrictEqual(recorded.instructions ?? [], input.instructions ?? [])) {
           throw new CollaborationStateError("IDEMPOTENCY_CONFLICT", "Scoped retry changed on replay");
         }
         return { changed: false, value: { replay: true, execution: rowToScopedExecution(execution) } };
@@ -7650,7 +7651,8 @@ export class CollaborationStateDatabase {
         agentId: String(execution.agent_id), ts: timestamp,
         type: "scoped.agent.retrying",
         payload: { arrivalRequestId, executionId, failedOwnershipEpoch: failedEpoch,
-          ownershipEpoch: nextEpoch, ...(execution.execution_branch ? { executionBranch: String(execution.execution_branch) } : {}) }
+          ownershipEpoch: nextEpoch, ...(execution.execution_branch ? { executionBranch: String(execution.execution_branch) } : {}),
+          ...(input.instructions?.length ? { instructions: input.instructions } : {}) }
       });
       const resumed = this.database.prepare(`
         SELECT * FROM scoped_executions WHERE project_id = ? AND execution_id = ?
