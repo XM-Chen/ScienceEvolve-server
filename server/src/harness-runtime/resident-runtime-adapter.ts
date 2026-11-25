@@ -2312,33 +2312,38 @@ function assertTurnRuntime(
   turn: Pick<ResidentTurn, "inputId" | "invocationId" | "prompt">
 ): void {
   const request = runtime?.request;
-  if (!request || typeof runtime.onTrace !== "function" ||
-    request.invocationId !== turn.invocationId ||
-    (base.terminalPushObservation !== undefined || base.terminalPushCoordination !== undefined || base.worktreeClosing !== undefined) && request.invocationId !== base.invocationId ||
-    request.project.id !== base.project.id ||
-    request.agent !== base.agent ||
-    request.kind !== base.kind ||
-    request.permission !== base.permission ||
-    (request.purpose ?? "workflow") !== (base.purpose ?? "workflow") ||
-    request.inboxPath !== base.inboxPath ||
-    request.projectPath !== base.projectPath ||
-    request.workspacePath !== base.workspacePath ||
-    request.schemaPath !== base.schemaPath ||
-    request.runtimePath !== base.runtimePath ||
-    JSON.stringify(request.skillPaths) !== JSON.stringify(base.skillPaths) ||
-    JSON.stringify(request.autoSkillPaths ?? []) !== JSON.stringify(base.autoSkillPaths ?? []) ||
-    JSON.stringify(request.availableSkillPaths) !== JSON.stringify(base.availableSkillPaths) ||
-    JSON.stringify(request.executionContext) !== JSON.stringify(base.executionContext) ||
-    !isDeepStrictEqual(request.terminalPushObservation, base.terminalPushObservation) ||
-    !isDeepStrictEqual(request.terminalPushCoordination, base.terminalPushCoordination) ||
-    !isDeepStrictEqual(request.worktreeClosing, base.worktreeClosing) ||
-    JSON.stringify(request.project.agents[request.agent]) !==
-      JSON.stringify(base.project.agents[base.agent]) ||
-    request.project.agents[request.agent]?.harness !==
-      base.project.agents[base.agent]?.harness ||
-    request.project.agents[request.agent]?.model !==
-      base.project.agents[base.agent]?.model) {
+  if (!request || typeof runtime.onTrace !== "function") {
     throw adapterError("Resident per-turn runtime changed its stable process authority");
+  }
+  const sameInvocationRequired = base.terminalPushObservation !== undefined ||
+    base.terminalPushCoordination !== undefined || base.worktreeClosing !== undefined;
+  const stableFields = (value: AgentRunRequest) => ({
+    invocationId: sameInvocationRequired ? value.invocationId : turn.invocationId,
+    projectId: value.project.id,
+    agent: value.agent,
+    kind: value.kind,
+    permission: value.permission,
+    purpose: value.purpose ?? "workflow",
+    inboxPath: value.inboxPath,
+    projectPath: value.projectPath,
+    workspacePath: value.workspacePath,
+    schemaPath: value.schemaPath,
+    runtimePath: value.runtimePath,
+    skillPaths: value.skillPaths,
+    autoSkillPaths: value.autoSkillPaths ?? [],
+    availableSkillPaths: value.availableSkillPaths,
+    executionContext: value.executionContext,
+    terminalPushObservation: value.terminalPushObservation,
+    terminalPushCoordination: value.terminalPushCoordination,
+    worktreeClosing: value.worktreeClosing,
+    agentConfig: value.project.agents[value.agent]
+  });
+  const currentFields = stableFields(request);
+  const baseFields = stableFields(base);
+  const changed = (Object.keys(baseFields) as (keyof typeof baseFields)[])
+    .filter(field => !isDeepStrictEqual(currentFields[field], baseFields[field]));
+  if (request.invocationId !== turn.invocationId || changed.length) {
+    throw adapterError(`Resident per-turn runtime changed its stable process authority (${changed.join(", ") || "invocationId"})`);
   }
   const durable = runtime.durableRehydrate;
   if (durable && (!/^[a-f0-9]{64}$/i.test(durable.sourceDigest) ||

@@ -3673,6 +3673,10 @@ describe.runIf(process.platform === "linux")("openBuiltinResidentAdapter", () =>
         request: {
           ...baseRequest,
           invocationId: current.invocationId,
+          permission: current.inputId === "scope-drift" ? "yolo" : baseRequest.permission,
+          executionContext: {
+            ...Object.fromEntries(Object.entries(baseRequest.executionContext!).reverse())
+          } as NonNullable<AgentRunRequest["executionContext"]>,
           onOfficialHarnessEvent: (event) => { official.push(event); }
         },
         onTrace: async (_kind, message) => {
@@ -3682,6 +3686,11 @@ describe.runIf(process.platform === "linux")("openBuiltinResidentAdapter", () =>
         }
       })
     });
+    await expect(handle.submit({
+      inputId: "scope-drift",
+      invocationId: "activation-inv",
+      prompt: "must be rejected before activation"
+    })).rejects.toThrow(/stable process authority.*permission/);
     await expect(handle.submit({
       inputId: "activation-input",
       invocationId: "activation-inv",
