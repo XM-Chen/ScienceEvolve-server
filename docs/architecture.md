@@ -186,8 +186,9 @@ Project context is provided through the Inbox and context index.
 ## Permissions
 
 `workspace` uses the project workspace sandbox and an isolated HOME.
-`compute` inherits the authorized compute environment, Inspire wrapper and
-workload accounting. `yolo` maps to the selected CLI's highest native access
+`compute` permits work in the project's registered workspaces. The legacy
+Inspire wrapper and workload accounting apply only within their configured
+deployment directory. `yolo` maps to the selected CLI's highest native access
 mode and does not add product-level restrictions. Permission is independent of
 the Worker output protocol and can be selected for Main or any child Agent.
 

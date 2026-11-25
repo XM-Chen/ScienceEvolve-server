@@ -387,7 +387,7 @@ SCIENCEEVOLVE_INSPIRE_CONFIG_PATH=
 SCIENCEEVOLVE_INSPIRE_NO_PROXY=
 ```
 
-把上面的路径替换为本机真实路径；未配置工作区边界时，当前内核回退到 `/inspire/qb-ilm`，该路径不适用于所有安装位置。`SCIENCEEVOLVE_INSPIRE_WORKSPACE_ROOT` 是本机文件系统边界，必须包含实际的 Agent 工作区（通常位于 `${SCIENCEEVOLVE_DATA_DIR}/projects/...`）；它不是 SII 平台上的 Workspace 名称。Server 将可选的 `SCIENCEEVOLVE_INSPIRE_CONFIG_PATH` 传为 `INSPIRE_GLOBAL_CONFIG_PATH`，但下文使用的 CLI 7.2.1 不读取该配置层；它不能指定账号或替代 OAuth 登录。`SCIENCEEVOLVE_INSPIRE_NO_PROXY` 只补充逗号分隔的直连域名，也不能替代账号登录或平台代理配置。
+把上面的路径替换为本机真实路径；未配置工作区边界时，当前内核回退到 `/inspire/qb-ilm`，该路径不适用于所有安装位置。`SCIENCEEVOLVE_INSPIRE_WORKSPACE_ROOT` 是旧版本地 Inspire 包装器的适用范围，不是 SII 平台上的 Workspace 名称。只有选择 `compute` 且工作目录位于该范围内的调用才准备包装器及其环境。范围外的已绑定本地目录正常使用「项目内工作区」，不要求移动到 Inspire 目录，也不注入该包装器的配置或工作量账本。Server 将可选的 `SCIENCEEVOLVE_INSPIRE_CONFIG_PATH` 传为 `INSPIRE_GLOBAL_CONFIG_PATH`，但下文使用的 CLI 7.2.1 不读取该配置层；它不能指定账号或替代 OAuth 登录。`SCIENCEEVOLVE_INSPIRE_NO_PROXY` 只补充逗号分隔的直连域名，也不能替代账号登录或平台代理配置。
 
 **安装或登录另一个 CLI 不会自动改变 Server 的绑定。** `SCIENCEEVOLVE_INSPIRE_BIN` 应指向实际验证过的可执行文件；Shell 函数、别名或某个项目的虚拟环境不会覆盖这一设置。部署配置变化须经运维确认并重启 Server 才生效；之后还需从实际 `sii_command` 核验版本和只读资源查询，不能把终端登录成功当作 MCP 已兼容。
 

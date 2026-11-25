@@ -122,16 +122,11 @@ export async function prepareComputeRuntime(
   request: Pick<AgentRunRequest, "permission" | "workspacePath" | "runtimePath">,
   options: HarnessHostOptions
 ): Promise<void> {
-  if (request.permission !== "compute" || !options.inspireBin) return;
+  if (!usesInspireRuntime(request.permission, request.workspacePath, options)) return;
   const allowedRoot = options.inspireWorkspaceRoot ?? "/inspire/qb-ilm";
-  if (!pathIsWithin(request.workspacePath, allowedRoot)) {
-    throw new Error(
-      `Execution workspace must be under the configured Inspire qb-ilm root: ${allowedRoot}`
-    );
-  }
   await stageInspireWrapper(
     request.runtimePath,
-    options.inspireBin,
+    options.inspireBin!,
     allowedRoot
   );
 }
@@ -213,6 +208,8 @@ export function agentEnvironment(
       environment.NATURE_FIGURE_CONFIG = natureFigureConfigPath;
       environment.MPLBACKEND = "Agg";
     }
+  }
+  if (usesInspireRuntime(permission, workspacePath, options)) {
     if (options.inspireConfigPath) {
       environment.INSPIRE_GLOBAL_CONFIG_PATH = options.inspireConfigPath;
     }
@@ -234,6 +231,11 @@ export function agentEnvironment(
     }
   }
   return environment;
+}
+
+function usesInspireRuntime(permission: AgentPermission, workspacePath: string, options: HarnessHostOptions): boolean {
+  return permission === "compute" && Boolean(options.inspireBin) &&
+    pathIsWithin(workspacePath, options.inspireWorkspaceRoot ?? "/inspire/qb-ilm");
 }
 
 /** Resolve OpenFARS-owned MCP child entry points for source and build layouts. */

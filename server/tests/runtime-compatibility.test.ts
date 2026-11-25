@@ -11,6 +11,7 @@ import { preparePiSettings } from "../src/harness-runtime/adapters/pi-adapter.js
 import { normalizeHarnessRuntimeError, proxyFailureError } from "../src/harness-runtime/errors.js";
 import { harnessPackageMetadata } from "../src/harness-runtime/installations.js";
 import { startProtocolProxy } from "../src/protocol-router.js";
+import { agentEnvironment, prepareComputeRuntime } from "../src/harness-runtime/runtime-support.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -20,6 +21,25 @@ afterEach(async () => {
 
 // These fixtures never launch a Harness or contact a model service.
 describe("offline runtime compatibility", () => {
+  it("keeps project-wide filesystem access independent from an unrelated Inspire deployment", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "scienceevolve-local-compute-"));
+    roots.push(root);
+    const workspace = path.join(root, "bound-project");
+    const runtime = path.join(root, "runtime");
+    await fs.mkdir(workspace);
+    const options = { inspireBin: path.join(root, "inspire"), inspireConfigPath: path.join(root, "inspire.toml"),
+      inspireWorkspaceRoot: path.join(root, "remote-workspace") };
+    await prepareComputeRuntime({ permission: "compute", workspacePath: workspace, runtimePath: runtime }, options);
+    const environment = agentEnvironment(root, runtime, "prj_fixture", "inv_fixture", "reader", "worker",
+      "compute", root, workspace, options, [], undefined, undefined, undefined, undefined, "codex", "responses",
+      { PATH: "fixture-path" });
+    expect(environment.SCIENCEEVOLVE_AGENT_PERMISSION).toBe("compute");
+    expect(environment.PATH).toBe("fixture-path");
+    for (const key of ["INSPIRE_GLOBAL_CONFIG_PATH", "SCIENCEEVOLVE_INSPIRE_WORKSPACE_ROOT",
+      "SCIENCEEVOLVE_INSPIRE_WORKLOAD_LEDGER"]) expect(environment[key]).toBeUndefined();
+    await expect(fs.access(path.join(runtime, "bin"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it.each([
     ["@earendil-works/pi-coding-agent", "1.6.0", "$SCIENCEEVOLVE_GATEWAY_API_KEY"],
     ["@mariozechner/pi-coding-agent", "0.62.0", "SCIENCEEVOLVE_GATEWAY_API_KEY"]
