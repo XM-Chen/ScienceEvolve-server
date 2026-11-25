@@ -8509,6 +8509,10 @@ describe("CollaborationRuntimeCoordinator", () => {
           });
           expect(authority.control.tasklessRouteTargets).toEqual(["main-selected-team"]);
           expect(authority.control.allowWorkflowReconfiguration).toBe(reconfiguration);
+          expect(input.open.controlScope).toMatchObject({
+            role: "main-route",
+            allowWorkflowReconfiguration: authority.control.allowWorkflowReconfiguration
+          });
           const preparations: Array<{ callId: string; action: ControlAction }> = [];
           if (reconfiguration) {
             const proposalPath = path.join(input.open.inputs!.workspacePath, "workflow.json");

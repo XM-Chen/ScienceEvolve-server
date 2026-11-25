@@ -12321,7 +12321,7 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
               candidates: routeCandidates,
               tasklessRouteTargets,
               allowUserIntervention,
-              allowWorkflowReconfiguration: false,
+              allowWorkflowReconfiguration,
               canComplete: false,
                allowFinishRoute
              },
