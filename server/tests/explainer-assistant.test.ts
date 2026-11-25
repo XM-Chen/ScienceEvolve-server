@@ -36,6 +36,36 @@ async function setup() {
 const mutation = (revision: number, operationId: string, patch?: unknown) => ({ expectedRevision: revision, operationId, ...(patch ? { patch } : {}) });
 
 describe("Project Explainer agent tools and durable project drafts", () => {
+  it("previews Loop errors without saving and accepts the same corrected patch for update", async () => {
+    const f = await setup();
+    await f.store.call(f.context.id, "update_draft", mutation(0, "seed-loop-preview", {
+      title: "Loop preview", requirement: "Validate the proposed Workflow before saving changes."
+    }));
+    const before = await f.store.get(f.context.id);
+    const savedBefore = await f.tasks.list();
+    const patch = {
+      orchestration: {
+        loops: [{ id: "retry_review", from: "review", to: "execution", maxIterations: 2, exitTo: "main" }],
+        routes: {
+          execution: [{ target: "review", kind: "strong" }],
+          review: [{ target: "execution", kind: "weak" }]
+        },
+        termination: { agent: "main" }
+      }
+    };
+    const invalid = await f.store.call(f.context.id, "validate_workflow", { expectedRevision: 1, patch });
+    expect(invalid).toMatchObject({ result: { valid: false, revision: 1,
+      issues: expect.arrayContaining([expect.objectContaining({ path: ["loops", 0] })]),
+      loops: [expect.objectContaining({ id: "retry_review", returnRoutes: patch.orchestration.routes.review })] } });
+    patch.orchestration.routes.review[0]!.kind = "strong";
+    const valid = await f.store.call(f.context.id, "validate_workflow", { expectedRevision: 1, patch });
+    expect(valid).toMatchObject({ result: { valid: true, revision: 1 } });
+    expect(await f.tasks.list()).toEqual(savedBefore);
+    expect((await f.store.get(f.context.id)).draft).toEqual(before.draft);
+    const updated = await f.store.call(f.context.id, "update_draft", mutation(1, "save-loop-preview", patch));
+    expect(updated.action?.context.draft.orchestration.loops).toEqual(patch.orchestration.loops);
+  });
+
   it("retains the saved action facts when its UI notification fails, without creating another draft on replay", async () => {
     const f = await setup();
     const endpoint = await openExplainerAssistantMcp(f.store, f.context.id, new AbortController().signal, async () => { throw new Error("UI stream closed"); });

@@ -2,7 +2,7 @@ export const EXPLAINER_MCP_NAME = "openfars-project-explainer";
 export const EXPLAINER_CONTEXT_SECTIONS = ["overview", "draft", "drafts", "agent", "catalog", "project", "workflow", "evidence", "schema"] as const;
 export const EXPLAINER_ACTION_KINDS = ["draft.created", "draft.updated", "draft.saved", "draft.undone", "drafts.deleted", "workflow.submitted", "projects.started"] as const;
 export function explainerToolNames(capabilities: { startProjects: boolean; submitWorkflow: boolean }) {
-  return ["get_context", "create_draft", "update_draft", "update_saved_draft", "save_draft", "undo_draft", "delete_drafts",
+  return ["get_context", "validate_workflow", "create_draft", "update_draft", "update_saved_draft", "save_draft", "undo_draft", "delete_drafts",
     ...(capabilities.startProjects ? ["start_projects"] : []), ...(capabilities.submitWorkflow ? ["submit_workflow_adjustment"] : [])];
 }
 export const EXPLAINER_DRAFT_FIELD_GUIDANCE = {

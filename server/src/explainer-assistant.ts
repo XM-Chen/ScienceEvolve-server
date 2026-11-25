@@ -5,15 +5,17 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { SavedResearchTaskStore, savedTaskDeletionSchema, type DeletedSavedResearchTask } from "./saved-research-tasks.js";
 import { cloneAgentOrchestrationTemplate } from "./agent-orchestration.js";
-import { defaultAgentConfigs, mergeAgentConfigs, publicAgentConfigs, savedResearchTaskInputSchema } from "./validation.js";
+import { defaultAgentConfigs, mergeAgentConfigs, orchestrationShapeSchema, publicAgentConfigs, savedResearchTaskInputSchema } from "./validation.js";
 import { SkillCatalog } from "./skill-catalog.js";
 import { validateProjectSkillReferences } from "./project-skills.js";
 import { validateProjectMcpReferences } from "./project-mcp.js";
 import type { ProjectState, SavedResearchTask } from "./types.js";
 import { EXPLAINER_ACTION_KINDS, EXPLAINER_CONTEXT_SECTIONS, EXPLAINER_DRAFT_FIELD_GUIDANCE, explainerToolNames } from "./internal/shared/explainer-tools.js";
+import { workflowLoopMembers } from "./internal/shared/workflow-loop-validation.js";
 import { explainerDraftContract, EXPLAINER_SCHEMA_KEYS } from "./explainer-draft-contract.js";
 import { agentContextRecordMetadata } from "./agent-context-index.js";
 import { savedTaskLaunchSchema, type SavedTaskLaunchInput, type SavedTaskLaunchResult } from "./saved-task-launcher.js";
+import { redactTrace } from "./utils.js";
 
 export const assistantIdSchema = z.string().regex(/^(?:exp|prj)_[a-f0-9]{32}$/);
 export const assistantTargetSchema = z.object({ taskId: z.string().regex(/^task_[a-f0-9]{32}$/).optional(),
@@ -178,6 +180,7 @@ export class ExplainerAssistantStore {
   async call(id: string, name: string, args: unknown, signal?: AbortSignal): Promise<{ result: unknown; action?: AssistantAction }> {
     signal?.throwIfAborted();
     if (name === "get_context") return { result: await this.readContextSection(id, args) };
+    if (name === "validate_workflow") return { result: await this.validateWorkflowPatch(id, args, signal) };
     if (name === "start_projects") return this.startProjects(id, args, signal);
     if (name === "delete_drafts") return this.deleteDrafts(id, args, signal);
     if (name === "update_saved_draft") return this.updateSavedDraft(id, args, signal);
@@ -195,11 +198,7 @@ export class ExplainerAssistantStore {
         return receipt.value;
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       this.assertRevision(context, input.expectedRevision);
-      if (name !== "create_draft" && context.taskId && !context.projectId) {
-        const saved = await this.host.tasks.get(context.taskId);
-        if (!saved) throw new Error("项目草稿已被删除。");
-        if (context.taskUpdatedAt !== saved.updatedAt) throw conflict("已保存草稿已有新的修改，请调用 get_context 阅读最新草稿后再修改。");
-      }
+      if (name !== "create_draft") await this.assertSavedDraftUnchanged(context);
       let action: AssistantAction;
       if (name === "create_draft") {
         const parsed = savedResearchTaskInputSchema.parse(newDraftInput(context.draft, input.patch ?? {}));
@@ -216,8 +215,7 @@ export class ExplainerAssistantStore {
           savedTask: { id: task.id, title: task.title, updatedAt: task.updatedAt },
           summary: `已新建独立项目草稿《${task.title}》，尚未启动运行。`, href: `/saved-tasks/${task.id}/edit` };
       } else if (name === "update_draft") {
-        const parsed = savedResearchTaskInputSchema.parse(mergePatch(context.draft, input.patch ?? {}));
-        const draft = { ...parsed, agents: publicAgentConfigs(mergeAgentConfigs(parsed.agents, parsed.orchestration)) };
+        const draft = parseDraftCandidate(mergePatch(context.draft, input.patch ?? {}));
         const changedFields = [...new Set([...Object.keys(context.draft), ...Object.keys(draft)])].filter(field => !isDeepStrictEqual(
           context.draft[field as keyof AssistantDraft], draft[field as keyof typeof draft]));
         await this.validateDraftConfiguration(draft);
@@ -285,6 +283,31 @@ export class ExplainerAssistantStore {
   availableToolNames(context: Pick<ExplainerAssistantContext, "projectId">): string[] {
     return explainerToolNames({ startProjects: !!this.host.startProjects,
       submitWorkflow: !!context.projectId && !!this.host.workflow && !!this.host.submitWorkflow });
+  }
+  private async validateWorkflowPatch(id: string, args: unknown, signal?: AbortSignal) {
+    const input = z.object({ expectedRevision: z.number().int().nonnegative(), patch: draftPatchInputSchema }).strict().parse(args);
+    return this.serialize(async () => {
+      signal?.throwIfAborted();
+      const context = await this.read(await this.resolve(id));
+      this.assertRevision(context, input.expectedRevision);
+      await this.assertSavedDraftUnchanged(context);
+      const candidate = mergePatch(context.draft, input.patch);
+      const identity = { revision: context.revision, taskId: context.taskId };
+      try {
+        await this.validateDraftConfiguration(parseDraftCandidate(candidate));
+      } catch (error) {
+        signal?.throwIfAborted();
+        return { ...identity, valid: false, ...draftValidationFeedback(candidate, error) };
+      }
+      signal?.throwIfAborted();
+      return { ...identity, valid: true };
+    });
+  }
+  private async assertSavedDraftUnchanged(context: StoredContext) {
+    if (!context.taskId || context.projectId) return;
+    const saved = await this.host.tasks.get(context.taskId);
+    if (!saved) throw new Error("项目草稿已被删除。");
+    if (context.taskUpdatedAt !== saved.updatedAt) throw conflict("已保存草稿已有新的修改，请调用 get_context 阅读最新草稿后再修改。");
   }
   private async deleteDrafts(id: string, args: unknown, signal?: AbortSignal) {
     const input = savedTaskDeletionSchema.extend({ expectedRevision: z.number().int().nonnegative(), explanation: z.string().max(20_000).optional() }).parse(args);
@@ -532,6 +555,35 @@ function newDraftInput(base: AssistantDraft, patch: Record<string, unknown>): un
   return mergePatch({ ...base, orchestration: {}, agents: Object.fromEntries(Object.entries(base.agents ?? {}).filter(([name]) => roster.has(name))) }, patch);
 }
 
+function parseDraftCandidate(candidate: unknown): AssistantDraft {
+  const parsed = savedResearchTaskInputSchema.parse(candidate);
+  return { ...parsed, agents: publicAgentConfigs(mergeAgentConfigs(parsed.agents, parsed.orchestration)) };
+}
+
+function draftValidationFeedback(candidate: unknown, error: unknown) {
+  if (!(error instanceof z.ZodError)) {
+    return { issues: [{ path: [], message: redactTrace(error instanceof Error ? error.message : String(error)) }] };
+  }
+  const issues = error.issues.slice(0, 20).map(({ path, message }) => ({ path, message }));
+  const loopIndices = new Set(issues.flatMap(issue => {
+    const parts = issue.path[0] === "orchestration" ? issue.path.slice(1) : issue.path;
+    return parts[0] === "loops" && typeof parts[1] === "number" ? [parts[1]] : [];
+  }));
+  if (!loopIndices.size || !candidate || typeof candidate !== "object" || !("orchestration" in candidate)) return { issues };
+  const shape = orchestrationShapeSchema.safeParse(candidate.orchestration);
+  if (!shape.success) return { issues };
+  const graph = shape.data;
+  const loops = [...loopIndices].flatMap(index => {
+    const loop = graph.loops?.[index];
+    if (!loop) return [];
+    const pathFromEntry = workflowLoopMembers(graph, loop);
+    const lastReached = pathFromEntry.at(-1) ?? loop.to;
+    return [{ ...loop, returnRoutes: graph.routes[loop.from] ?? [], pathFromEntry,
+      lastReached, lastReachedRoutes: graph.routes[lastReached] ?? [] }];
+  });
+  return { issues, loops };
+}
+
 function mergePatch(base: unknown, patch: unknown): unknown {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) return structuredClone(patch);
   const result: Record<string, unknown> = base && typeof base === "object" && !Array.isArray(base) ? structuredClone(base as Record<string, unknown>) : {};
@@ -555,6 +607,7 @@ export function assistantInstructions(context: ExplainerAssistantContext, canSta
     "You decide how to help and which supplied tools to call. There is no required conversation sequence. Ask a concise question only when essential information is missing; infer sensible task-specific settings otherwise. Reply naturally in the user's language.",
     "Call get_context for the current revision and section/Agent lists. Read only needed draft fields with section=draft,key=<field>, an Agent with section=agent,key=<agentId>, and catalog lists with section=catalog,key=<field>; use entry to open a full catalog record. Do not load all sections or history by default. Use update_draft with an RFC 7396 JSON merge patch: objects merge, arrays replace and null removes a field. Omitting an object key NEVER deletes it, even if you send the entire graph. To move existing Agents into a v2 group, set each member's old orchestration.routes.<member> AND orchestration.decisionPlans.<member> to null. Groups are separate graph nodes: do not add the group ID to orchestration.agents or the agents settings map. Include one stable unique operationId and the exact expectedRevision for every mutation. A rejected tool is not success; read its error and repair your request.",
     "When asked to review or redesign the whole Workflow, read get_context with section=draft,key=orchestration for the full graph and with section=draft,key=requirement for the research brief. The Agent index alone is insufficient. When the user asks you to apply changes to the current draft, use update_draft and report the saved result after its receipt. Edit title, research requirement, Agent settings, collaboration groups, nested workflows, routes and prompts according to the user's intent. Preserve unrelated customizations. A request for parallel cooperation requires real collaboration groups. Use only exact availableRoutes tuples and listed tools/skills. Unverified Harness combinations remain usable with a warning.",
+    "Before update_draft for any graph edit that adds, changes or can affect a Loop, call validate_workflow with the exact proposed patch and latest revision. A Loop's from -> to is the source's only outgoing edge and must be strong. Use ordinary Agents for from and to, and keep the termination Agent out of from. Starting at to, each member must have exactly one strong route until reaching from, without passing through Main. exitTo is outside the cycle and is a Loop property, not a second route. Keep collaboration groups outside this cycle. Preserve valid existing Loops unless the user asks to change them. Use the returned issues and routes to fix the smallest patch, recheck, and save the same patch only after valid=true. If two corrections still fail, explain the blocking rule and leave the draft unsaved instead of repeating the same writes.",
     `Separate the user's research task from instructions to you about configuring its workflow. ${EXPLAINER_DRAFT_FIELD_GUIDANCE.requirement} ${EXPLAINER_DRAFT_FIELD_GUIDANCE.orchestration} ${EXPLAINER_DRAFT_FIELD_GUIDANCE.agents} ${EXPLAINER_DRAFT_FIELD_GUIDANCE.git}`,
     "Creating and saving drafts does not launch research. Do not copy draft-design restrictions into requirement or the configured research Agents' instructions. After the user launches the project, Main coordinates actual scientific work and the other workflow Agents execute it; they are not project-draft editors.",
     "When a message combines both, put only the research objective, inputs, deliverables and research acceptance criteria in requirement, and implement the workflow-design part in orchestration/agents/git. For example: '研究蛋白质折叠，建立一个协作组，至少三个 Agent 并行' means requirement describes the protein-folding research, while the group, three Agents and parallel edges belong in workflow configuration. A later '增加两个 Agent、调整并行、换模型' should omit requirement from update_draft.patch and preserve the research brief. Never tell the research Agents to create a project draft, save settings, navigate pages or redesign their workflow just because the user asked you to do so. When designing a new research task and no research objective has been supplied, ask for that essential input instead of using 'build a workflow' as an invented research topic. Looking up, renaming or deleting saved drafts, and launching selected existing drafts, do not require the user to restate a research objective. Research whose actual subject is workflows or multi-agent systems remains valid; judge the user's intent, not keywords. Check the returned changedFields before summarizing an edit; undo and correct an unintended research-task change.",

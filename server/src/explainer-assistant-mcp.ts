@@ -29,6 +29,12 @@ export const EXPLAINER_TOOLS = [
       section: { type: "string", enum: EXPLAINER_CONTEXT_SECTIONS },
       key: { type: "string", minLength: 1, maxLength: 256 }, entry: { type: "string", minLength: 1, maxLength: 1024 }
     }, additionalProperties: false }, annotations: { readOnlyHint: true } },
+  { name: "validate_workflow", description: "Check a proposed RFC 7396 patch for the current draft before update_draft. Applies the same draft validators in memory, including Loop edges, and returns valid, revision, and any issues with paths and relevant Loop routes. Writes nothing. For graph edits involving a Loop, call this first, correct the patch if needed, then pass the same passing patch and revision to update_draft.",
+    inputSchema: { type: "object", properties: {
+      expectedRevision: { type: "integer", minimum: 0, description: "Current draft revision from get_context." },
+      patch: draftPatch
+    }, required: ["expectedRevision", "patch"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } },
   { name: "start_projects", description: "Start one or multiple selected saved drafts as real research projects, ONLY when the user explicitly asks to start them. Read section=drafts first and use each exact taskId/updatedAt. Returns an individual project link or error for every draft; successful items are not launched again on an exact retry. May initialize Git repositories. Does not change the current editor/project target.",
     inputSchema: { type: "object", properties: { ...mutationProperties,
       tasks: { type: "array", minItems: 1, maxItems: 100, items: { type: "object", properties: {
@@ -45,7 +51,7 @@ export const EXPLAINER_TOOLS = [
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false } },
   ...[
     ["create_draft", "Create a NEW independent project draft in the homepage library. Call once per new draft with a unique operationId. Fields inherit from the current draft, but providing orchestration.agents declares a NEW COMPLETE workflow: orchestration replaces the old graph and only settings for retained Agent names inherit. Provide the complete new graph and new Agents' settings; do not enumerate old roles just to delete them. Without a new roster, ordinary JSON merge-patch cloning applies. Read section=schema for exact configuration structure before designing a new graph. Preserves prior drafts and the current editor/project target. Returns savedTask.id and its link. Never starts research or creates a repository."],
-    ["update_draft", "Update the current draft using an RFC 7396 JSON merge patch. Valid project designs automatically save to the homepage draft library and return a link; running-project adjustment drafts remain proposals. Never starts research or creates a repository. Objects merge, arrays replace, null removes. Provide a complete valid graph whenever changing graph structure."],
+    ["update_draft", "Update the current draft using an RFC 7396 JSON merge patch. For graph changes involving a Loop, first pass the patch to validate_workflow and save only after valid=true. Valid project designs automatically save to the homepage draft library and return a link; running-project adjustment drafts remain proposals. Never starts research or creates a repository. Objects merge, arrays replace, null removes."],
     ["update_saved_draft", "Edit a specifically selected saved draft from any conversation using its exact taskId and expectedUpdatedAt from get_context section=drafts. Read its full detail before applying an RFC 7396 merge patch. Preserves unrelated fields, other drafts and the current editor/project target. Never starts research or creates a repository. A stale version is rejected."],
     ["save_draft", "Save the CURRENT project draft in the homepage library, updating its existing task ID. This is NOT create-new or save-as; use create_draft for a new independent draft. Never launches research or creates a Git repository. Returns the actual saved task ID and navigation link."],
     ["undo_draft", "Undo the last assistant edit of the CURRENT draft when the user asks. Edits to other saved drafts and deletions clear this undo history. User edits made since then are preserved through revision checks."],
