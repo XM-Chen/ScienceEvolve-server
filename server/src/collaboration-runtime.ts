@@ -379,6 +379,7 @@ export interface CollaborationRuntimeLifecycle {
   workflowReplayConfigurationHistory?(state: ProjectState): WorkflowReplayConfigurationHistory | Promise<WorkflowReplayConfigurationHistory>;
   submitWorkflowAdjustment?(state: ProjectState, input: unknown): Promise<WorkflowAdjustmentSubmissionResult>;
   withdrawWorkflowAdjustment?(state: ProjectState, input: unknown): Promise<WorkflowAdjustmentWithdrawalResult>;
+  holdProjectOnStartup?(state: ProjectState): void;
   recoverProject(state: ProjectState): Promise<boolean>;
   createProject(state: ProjectState, input: ProjectGitInput): Promise<void>;
   assertWorkflowRevisionEditable(state: ProjectState, affectedGroupIds: string[]): void | Promise<void>;
@@ -1137,6 +1138,7 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
   }>();
   #shuttingDown = false;
   readonly #turns = new ProjectTurnActivity();
+  readonly #startupHeldProjects = new Set<string>();
   readonly #cancellingProjects = new Set<string>();
   readonly #nativeTaskTurns = new Map<string, { signal: AbortSignal; counted: boolean }>();
   readonly #activeResidentTurns = new Set<string>();
@@ -1459,7 +1461,8 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
   private conversationRunning(state: ProjectState): boolean {
     const active = usesCollaborationScheduler(state) ? !hasUserWorkflowPause(state) &&
       !["completed", "cancelled", "cancelling", "stopped", "failed"].includes(state.status) : state.status === "running";
-    return active && !state.archivedAt && !state.pauseRequest && !this.#turns.isPaused(state.id) &&
+    return active && !state.archivedAt && !state.pauseRequest && !this.#startupHeldProjects.has(state.id) &&
+      !this.#turns.isPaused(state.id) &&
       !this.#shuttingDown && !this.#cancellingProjects.has(state.id);
   }
 
@@ -1493,6 +1496,7 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
     await this.#assistanceRuns.get(state.id);
   }
   async resumeMainAssistance(state: ProjectState): Promise<void> {
+    this.#startupHeldProjects.delete(state.id);
     this.#turns.resume(state.id);
     await this.recoverMainAssistance(state);
     this.wakeMainAssistance(state);
@@ -1548,12 +1552,13 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
       if (newlyQueued) void running.then(() => this.wakeMainAssistance(state));
       return;
     }
-    if (this.#shuttingDown || this.#closed || this.#turns.isPaused(state.id) ||
+    if (this.#shuttingDown || this.#closed || this.#startupHeldProjects.has(state.id) || this.#turns.isPaused(state.id) ||
       this.#cancellingProjects.has(state.id) || state.pauseRequest || ["paused", "pausing", "cancelled", "completed"].includes(state.status)) return;
     const controller = new AbortController(); this.#assistanceControllers.set(state.id, controller);
     const pending = Promise.resolve().then(async () => {
       for (;;) {
-        if (controller.signal.aborted || this.#turns.isPaused(state.id) || state.pauseRequest || this.#shuttingDown || ["cancelled", "completed"].includes(state.status)) return;
+        if (controller.signal.aborted || this.#startupHeldProjects.has(state.id) || this.#turns.isPaused(state.id) ||
+          state.pauseRequest || this.#shuttingDown || ["cancelled", "completed"].includes(state.status)) return;
         const request = (await this.database().mainInbox(state.id)).find(item => item.status === "queued" && (!isUserConversation(item) || this.conversationRunning(state)));
         if (!request) return;
         const claimed = await this.database().claimMainAssistance(state.id, request.id);
@@ -1765,6 +1770,15 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
     }, () => this.wakeMainAssistance(state, true));
     if (request.agent === "main") this.bindConversationInbox(state, request);
     this.wakeMainAssistance(state);
+  }
+
+  /** Keep existing projects inert until an explicit lifecycle action. */
+  holdProjectOnStartup(state: ProjectState): void {
+    this.#storage.trackCheckpoint(state);
+    if (!["completed", "cancelled"].includes(state.status)) {
+      this.#startupHeldProjects.add(state.id);
+      this.#turns.pause(state.id);
+    }
   }
 
   async recoverProject(state: ProjectState): Promise<boolean> {
@@ -2382,7 +2396,16 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
           return;
         }
       }
-      await this.resumeProjectLocked(state, !options?.preserveRecoveryBudget, options?.preserveRecoveryBudget);
+      const wasStartupHeld = this.#startupHeldProjects.delete(state.id);
+      try {
+        await this.resumeProjectLocked(state, !options?.preserveRecoveryBudget, options?.preserveRecoveryBudget);
+      } catch (error) {
+        if (wasStartupHeld) {
+          this.#startupHeldProjects.add(state.id);
+          this.#turns.pause(state.id);
+        }
+        throw error;
+      }
     });
   }
 
@@ -2772,6 +2795,7 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
     // Recovery restores a durable scoped pause into the in-process fence.
     // Persisting an answered intervention must also release that fence, or
     // scheduling/submit remains blocked despite the queued/running view.
+    this.#startupHeldProjects.delete(state.id);
     this.#turns.resume(state.id);
     this.scheduleProjectAfterSettlingRun(state);
   }
@@ -3869,7 +3893,7 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
   }
 
   private scheduleProject(state: ProjectState): boolean {
-    if (this.#shuttingDown || this.#runs.has(state.id) ||
+    if (this.#shuttingDown || this.#startupHeldProjects.has(state.id) || this.#runs.has(state.id) ||
       state.pauseRequest ||
       this.#cancellingProjects.has(state.id) ||
       state.status === "paused" || state.status === "interrupted" || state.status === "completed" ||
@@ -13338,7 +13362,7 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
   /** A real scheduled continuation, independent of native handles and role
    * slots. Its checkpoint survives restart; only user intent cancels it. */
   private armWorkflowRecovery(state: ProjectState): void {
-    if (this.#shuttingDown || this.#closed || this.#leaseError ||
+    if (this.#shuttingDown || this.#closed || this.#leaseError || this.#startupHeldProjects.has(state.id) ||
       !canAutomaticallyRecoverWorkflow(state) || state.status !== "retrying" ||
       !state.workflowRecovery?.pending || this.#workflowRecoveryTimers.has(state.id)) return;
     // A live run owns its own native wait/recovery. Its finally block arms
@@ -13348,7 +13372,7 @@ export class CollaborationRuntimeCoordinator implements CollaborationRuntimeLife
     const timer = setTimeout(async () => {
       this.#workflowRecoveryTimers.delete(state.id);
       void this.withProjectLifecycle(state.id, async () => {
-        if (this.#shuttingDown || this.#leaseError || !canAutomaticallyRecoverWorkflow(state) ||
+        if (this.#shuttingDown || this.#leaseError || this.#startupHeldProjects.has(state.id) || !canAutomaticallyRecoverWorkflow(state) ||
           state.status !== "retrying" || this.#runs.has(state.id)) return;
         if (state.workflowRecovery?.pending && Date.parse(state.workflowRecovery.nextRetryAt) > Date.now() + 5) {
           this.armWorkflowRecovery(state);

@@ -99,10 +99,39 @@ async function fixture(
       resultFormat: { presets: [], custom: "" }
     }
   });
-  return { lifecycle, orchestrator, project, runner };
+  return { lifecycle, orchestrator, project, root, runner };
 }
 
 describe("Git collaboration public API delegation", () => {
+  it("holds existing projects at startup without replaying their tasks", async () => {
+    const f = await fixture(() => undefined, {
+      addProjectUserInput: vi.fn(),
+      respondToUserIntervention: vi.fn()
+    });
+    await f.orchestrator.shutdown();
+    const holdProjectOnStartup = vi.fn();
+    f.lifecycle.holdProjectOnStartup = holdProjectOnStartup;
+    vi.stubEnv("SCIENCEEVOLVE_HOLD_EXISTING_PROJECTS", "1");
+    const restarted = new Orchestrator(
+      new ProjectStorage(f.root, new EventHub()),
+      new SkillCatalog([]),
+      f.runner,
+      { retryBaseMs: 1, retryMaxMs: 1 },
+      undefined,
+      f.lifecycle
+    );
+    try {
+      await restarted.initialize();
+      expect(holdProjectOnStartup).toHaveBeenCalledWith(expect.objectContaining({ id: f.project.id }));
+      expect(f.lifecycle.recoverProject).not.toHaveBeenCalled();
+      expect((await restarted.getProject(f.project.id))?.id).toBe(f.project.id);
+      expect(f.runner.calls).toEqual([]);
+    } finally {
+      await restarted.shutdown();
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("includes project-owned parallel calls in the overview queue without entering the shared scheduler", async () => {
     const f = await fixture(() => undefined, { addProjectUserInput: vi.fn(), respondToUserIntervention: vi.fn() });
     f.lifecycle.queueReadModel = vi.fn(state => ({

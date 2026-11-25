@@ -314,6 +314,7 @@ export function createApp(dependencies: AppDependencies) {
     response.status(runtime?.status === "unavailable" ? 503 : 200).json({
       status: runtime?.status === "unavailable" ? "unavailable" : "ok",
       ...(runtime ? { collaboration: runtime } : {}),
+      startupRecoveryHeld: process.env.SCIENCEEVOLVE_HOLD_EXISTING_PROJECTS === "1",
       processId: process.pid,
       startedAt: serverStartedAt,
       ...(deployedBuildInfo ? { build: deployedBuildInfo } : {}),

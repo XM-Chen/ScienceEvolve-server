@@ -369,6 +369,7 @@ export class Orchestrator {
   }
 
   async initialize(): Promise<void> {
+    const holdExistingProjects = process.env.SCIENCEEVOLVE_HOLD_EXISTING_PROJECTS === "1";
     await this.collaborationRuntime?.initialize();
     await this.storage.initialize();
     await this.storage.recoverIncompleteCommits();
@@ -606,6 +607,10 @@ export class Orchestrator {
         interruptWaiters: new Map()
       };
       this.runtimes.set(state.id, runtime);
+      if (holdExistingProjects) {
+        this.collaborationRuntime?.holdProjectOnStartup?.(state);
+        continue;
+      }
       if (!usesCollaborationScheduler(state)) await this.collaborationRuntime?.prepareSerialWorkflowAdjustments?.(state);
       if (["paused", "pausing"].includes(state.status) && !hasUserWorkflowPause(state)) {
         state.status = "retrying";
